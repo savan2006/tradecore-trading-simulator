@@ -2,19 +2,26 @@ spring:
   application:
     name: tradecore-backend
   config:
-    import: optional:file:../.env[.properties]
+    import: optional:file:./.env[.properties],optional:file:../.env[.properties]
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/tradecore}
-    username: ${SPRING_DATASOURCE_USERNAME:${POSTGRES_USER:tradecore}}
-    password: ${SPRING_DATASOURCE_PASSWORD:${POSTGRES_PASSWORD}}
+    url: ${SPRING_DATASOURCE_URL}
+    username: ${SPRING_DATASOURCE_USERNAME}
+    password: ${SPRING_DATASOURCE_PASSWORD}
+    hikari:
+      data-source-properties:
+        sslmode: require
   jpa:
     open-in-view: false
     hibernate:
       ddl-auto: validate
   data:
     redis:
-      host: ${SPRING_DATA_REDIS_HOST:localhost}
-      port: ${SPRING_DATA_REDIS_PORT:6379}
+      host: ${SPRING_DATA_REDIS_HOST}
+      port: ${SPRING_DATA_REDIS_PORT}
+      username: ${SPRING_DATA_REDIS_USERNAME:default}
+      password: ${SPRING_DATA_REDIS_PASSWORD}
+      ssl:
+        enabled: ${SPRING_DATA_REDIS_SSL_ENABLED:false}
 server:
   port: ${SERVER_PORT:8080}
 management:
@@ -26,7 +33,8 @@ management:
     health:
       probes:
         enabled: true
-      show-details: never
+      show-components: when-authorized
+      show-details: when-authorized
       group:
         readiness:
           include: readinessState,db,redis
@@ -37,5 +45,5 @@ management:
       enabled: true
 tradecore:
   security:
-    user: ${TRADECORE_SECURITY_USER}
+    user: ${TRADECORE_SECURITY_USER:tradecore-dev}
     password: ${TRADECORE_SECURITY_PASSWORD}
