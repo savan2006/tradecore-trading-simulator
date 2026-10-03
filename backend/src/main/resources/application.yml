@@ -14,6 +14,8 @@ spring:
     open-in-view: false
     hibernate:
       ddl-auto: validate
+  flyway:
+    enabled: true
   data:
     redis:
       host: ${SPRING_DATA_REDIS_HOST}
