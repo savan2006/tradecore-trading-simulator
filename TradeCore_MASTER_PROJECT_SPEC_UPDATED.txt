@@ -1,0 +1,3162 @@
+TRADECORE — MASTER PROJECT SPECIFICATION
+========================================
+My sdk is ms 21 and the backend is built on Java + Spring Boot.s 21 and
+
+
+DOCUMENT PURPOSE
+----------------
+This file is the master specification for building the complete TradeCore project.
+Give this document to an AI coding agent or development assistant before implementation.
+The AI must treat this document as the source of truth for product behavior, business
+rules, architecture direction, frontend experience, data strategy, performance goals,
+and development priorities.
+
+IMPORTANT:
+- Do NOT restart project ideation.
+- Do NOT suggest unrelated generic projects.
+- Do NOT turn the project into a simple CRUD application.
+- Do NOT make it look like an AI-generated dashboard/template.
+- Do NOT clone Groww's exact UI, branding, code, wording, or visual identity.
+- Build a professional product that feels like a real retail trading platform.
+- The main engineering value is the trading/order-management backend and its business logic.
+- Frontend and backend are both required.
+- Frontend technology: Next.js.
+- Backend technology: Java + Spring Boot.
+- Database: PostgreSQL.
+- Supporting cache/coordination: Redis.
+- Realtime communication: WebSocket.
+- Current market-data source: the Upstox API.
+- Market-data integration MUST be provider-independent so that another provider can replace
+  Upstox later without changing the core trading system.
+
+
+====================================================================
+1. PRODUCT IDENTITY
+====================================================================
+
+PROJECT NAME
+------------
+TradeCore
+
+FULL WORKING NAME
+-----------------
+TradeCore — Trading Order Management & Portfolio Simulation Platform
+
+PRODUCT TYPE
+------------
+A retail trading-learning / virtual trading platform with a realistic order-management
+and portfolio-processing backend.
+
+CORE IDEA
+---------
+TradeCore uses real market information for a limited universe of real Indian companies,
+while all money, orders, executions, holdings, portfolio state and financial activity
+inside TradeCore are virtual and simulated.
+
+REAL WORLD INPUT
+----------------
+- Real company/instrument information
+- Real market prices and market updates when the current market-data provider is available
+- Real market-session concepts and Indian-market trading behavior
+
+INTERNAL SIMULATION
+-------------------
+- User accounts
+- Virtual trading accounts
+- ₹1,00,000 initial virtual capital per newly registered user
+- Orders
+- Executions
+- Holdings/positions
+- Portfolio valuation
+- Realized and unrealized P&L
+- Ledger
+- Risk rules
+- Notifications
+- Audit trail
+- Intraday square-off
+
+TradeCore is NOT a real brokerage and MUST NOT place real trades.
+
+
+====================================================================
+2. NON-NEGOTIABLE PRODUCT GOALS
+====================================================================
+
+The finished project must:
+
+1. Feel like a real trading product rather than a college CRUD project.
+2. Have meaningful business logic and multi-step workflows.
+3. Have strong relational data and transactional consistency.
+4. Support both DELIVERY and INTRADAY trading modes.
+5. Support BUY and SELL.
+6. Support MARKET and LIMIT orders.
+7. Support order state transitions.
+8. Support order cancellation where valid.
+9. Support partial execution.
+10. Maintain an auditable financial ledger.
+11. Handle concurrent order requests safely.
+12. Handle duplicate client requests safely using idempotency.
+13. Calculate position and P&L correctly.
+14. Give realtime market and order updates without page refresh.
+15. Use caching intelligently for very fast reads.
+16. Keep PostgreSQL as the source of truth for financial state.
+17. Keep the market-data provider behind a replaceable adapter boundary.
+18. Survive temporary market-data failures without corrupting financial state.
+19. Have USER and ADMIN roles.
+20. Have useful administration and monitoring features.
+21. Be responsive on desktop and mobile.
+22. Avoid unnecessary libraries, microservices, or complexity.
+23. Be understandable enough to explain in an interview.
+24. Be scalable in design without becoming unnecessarily distributed.
+25. Prioritize correctness over flashy features.
+
+
+====================================================================
+3. FRONTEND + BACKEND TECHNOLOGY DIRECTION
+====================================================================
+
+FRONTEND
+--------
+Next.js.
+
+Use a modern Next.js architecture and prefer server-rendered/server components where they
+make sense. Use client components only for genuinely interactive parts such as live quote
+widgets, charts, order tickets, realtime notifications, filters, and interactive tables.
+
+BACKEND
+-------
+Java + Spring Boot.
+
+The backend is a modular monolith with strong module boundaries.
+
+DATABASE
+--------
+PostgreSQL.
+
+CACHE / FAST STATE
+------------------
+Redis.
+
+REALTIME
+--------
+WebSocket from Spring Boot to Next.js.
+
+SECURITY
+--------
+Spring Security.
+
+MONITORING
+----------
+Spring Boot Actuator and useful application metrics.
+
+BUILD
+-----
+Maven.
+
+Do not hard-code obsolete dependency versions. During implementation, use currently stable,
+mutually compatible releases and verify official documentation where version-specific behavior
+matters.
+
+Do not add Kafka, Kubernetes, microservices, Elasticsearch, or other infrastructure merely to
+look advanced. Add a technology only when it solves a real requirement.
+
+
+====================================================================
+4. CURRENT MARKET-DATA PROVIDER DECISION
+====================================================================
+
+CURRENT PROVIDER
+----------------
+Upstox API.
+
+IMPORTANT PROVIDER RULE
+-----------------------
+The Upstox API is only the current external market-data source. It is NOT the source of
+truth for users' accounts, orders, positions, balances, ledger, portfolio or audit history.
+
+The application architecture MUST be:
+
+External Market Data Provider
+        |
+        v
+Provider Adapter / Integration Layer
+        |
+        v
+TradeCore Internal Market Data Model
+        |
+        +--------------------+
+        |                    |
+        v                    v
+Current Market State     Historical/Candle Processing
+        |
+        v
+Trading Engine + Frontend Realtime Updates
+
+LATER PROVIDER SWITCH
+---------------------
+The provider architecture must remain replaceable so another market-data provider can be introduced later.
+
+Changing:
+    Upstox API -> another provider
+
+should affect the provider adapter/integration layer and related configuration/mapping,
+NOT the order engine, risk engine, position engine, ledger, portfolio service, or frontend
+business assumptions.
+
+IMPORTANT:
+Do not assume a particular Upstox API endpoint, payload field, protocol, entitlement, or update frequency.
+Inspect the actual available interface during implementation and map it into TradeCore's
+internal model. Never invent unsupported provider capabilities.
+
+
+====================================================================
+5. MARKET UNIVERSE
+====================================================================
+
+INITIAL UNIVERSE
+----------------
+Approximately 30–35 real Indian companies/instruments.
+
+Examples may include:
+- RELIANCE
+- TCS
+- INFY
+- HDFCBANK
+- ICICIBANK
+- SBIN
+- ITC
+- LT
+- BHARTIARTL
+- HINDUNILVR
+
+The exact final list can be configured/seeded during implementation.
+
+Do not build an unnecessary full-market ingestion platform.
+The architecture should allow adding instruments later without redesign.
+
+
+====================================================================
+6. REALTIME MARKET-DATA EXPERIENCE
+====================================================================
+
+The website must feel live.
+
+EXPECTED USER EXPERIENCE
+------------------------
+A user opens the application and sees the current market state.
+While the market is open, prices can change without refreshing the page.
+Watchlists, market tables, instrument pages and relevant portfolio information should react
+to live updates.
+
+PREFERRED DATA FLOW
+-------------------
+Upstox API
+    -> provider adapter
+    -> validation/normalization
+    -> internal market event
+    -> update latest market state
+    -> Redis/current-state cache
+    -> publish realtime event
+    -> WebSocket
+    -> connected Next.js clients
+
+Do NOT make every browser call the external provider directly.
+The frontend talks to TradeCore.
+
+DO NOT USE SLOW POLLING FOR LIVE PRICES
+---------------------------------------
+Do not build a design where every client polls prices every second.
+Use the provider's stream/update mechanism where available, then distribute relevant updates
+from the backend over WebSocket.
+
+If the actual provider cannot deliver true streaming for some field, degrade gracefully and
+use the smallest sensible refresh interval for that specific field. Do not fake realtime data.
+
+
+====================================================================
+7. INTERNAL LIVE QUOTE MODEL
+====================================================================
+
+The internal quote model should be provider-neutral and should support at least:
+
+- instrument identifier
+- symbol
+- LTP/current price
+- previous close
+- open
+- high
+- low
+- price change
+- percentage change
+- volume, when available
+- bid price, when available
+- bid quantity, when available
+- ask price, when available
+- ask quantity, when available
+- market timestamp
+- server/provider received timestamp
+- market status
+- data status
+
+DATA STATUS
+-----------
+LIVE
+STALE
+UNAVAILABLE
+
+The frontend must clearly distinguish market status from data status.
+
+Examples:
+- Market OPEN + Data LIVE
+- Market OPEN + Data STALE
+- Market CLOSED + Data LIVE (latest closing/current state known)
+- Market OPEN + Data UNAVAILABLE
+
+Never label an old quote as live merely because the last value is available.
+
+
+====================================================================
+8. MARKET SESSIONS
+====================================================================
+
+TradeCore must understand Indian equity-market sessions rather than assuming the market is
+always open.
+
+At minimum model:
+- PRE_OPEN
+- OPEN
+- SQUARE_OFF_WINDOW
+- CLOSED
+- HOLIDAY
+
+The live session calendar, trading day rules and holiday rules must be configurable and should
+be based on reliable exchange calendar information available during implementation.
+
+Current standard NSE equity-market behavior to model includes a 9:00–9:15 pre-open period and
+a 9:15–3:30 regular session. Treat the actual exchange calendar/provider behavior as the source
+for operational configuration rather than scattering hard-coded times through the code.
+
+Market hours and data availability are separate concepts.
+
+
+====================================================================
+9. HISTORICAL DATA + CHARTS
+====================================================================
+
+The user experience should provide chart periods similar to a modern retail investment app:
+
+- 1D
+- 1W
+- 1M
+- 6M
+- 1Y
+- 3Y
+- 5Y
+- ALL
+
+CHART TYPES
+-----------
+- Line chart
+- Candlestick chart
+
+The backend should return data at a sensible resolution for the selected period.
+Do not send huge raw tick datasets to the browser when aggregated candles are sufficient.
+
+Example conceptual resolution policy:
+- 1D -> intraday candles
+- 1W -> finer intraday candles
+- 1M -> medium-resolution candles
+- 6M -> broader interval candles
+- 1Y and longer -> daily candles
+
+Exact intervals can be tuned to available market data and storage limits.
+
+The chart API should return only the time range and resolution needed by the screen.
+
+
+====================================================================
+10. MARKET-DATA STORAGE OPTIMIZATION
+====================================================================
+
+Storage is limited and the application must remain fast.
+
+CRITICAL RULE:
+Do NOT permanently store every raw market tick forever.
+
+HOT/CURRENT DATA
+----------------
+Use Redis and/or optimized current-state memory for:
+- latest quote
+- latest price
+- latest bid/ask
+- current market status
+- freshness metadata
+- high-frequency read data
+
+PERMANENT DATA
+--------------
+PostgreSQL should retain data that is important for:
+- financial correctness
+- chart/history requirements
+- business auditability
+- reconstruction of user activity
+- executions
+- orders
+- positions
+- ledger
+- sessions
+- important system events
+
+HISTORICAL MARKET DATA
+----------------------
+Prefer candles/aggregated historical data for long-term chart storage instead of keeping all
+raw ticks.
+
+FINANCIAL EXECUTION DATA
+------------------------
+Whenever a simulated execution occurs, persist the market reference/context that was actually
+used to make the execution decision, including execution price and relevant timestamp/quote
+information. This is required for reproducibility and auditability.
+
+RETENTION / RETIREMENT
+----------------------
+Temporary high-frequency data should expire automatically.
+Historical data should use a deliberate retention policy.
+Use database indexes, partitioning or other optimizations only where justified by actual query
+patterns and data volume.
+Do not introduce complicated data infrastructure before it is needed.
+
+
+====================================================================
+11. WEB PERFORMANCE REQUIREMENTS
+====================================================================
+
+Performance is a first-class product requirement.
+
+The website must respond quickly and should not feel slow because of unnecessary client-side
+JavaScript or repeated API calls.
+
+NEXT.JS PERFORMANCE RULES
+-------------------------
+- Prefer server components for non-interactive content.
+- Keep client components small and focused.
+- Do not make the entire application a client component.
+- Lazy-load heavy charting/analytics code.
+- Avoid loading large datasets when only a small visible page is needed.
+- Use pagination/infinite loading for long histories where appropriate.
+- Use table virtualization if a table can become large.
+- Cache stable metadata such as instrument master data.
+- Do not poll every market widget independently.
+- Maintain a single efficient realtime subscription strategy.
+- Batch/merge UI updates when many symbols update together.
+- Do not cause full-page rerenders for a single price change.
+- Use loading placeholders only where they improve perception; do not animate everything.
+- Avoid excessive animations, gradients, shadows, and visual effects.
+- Keep navigation responsive and predictable.
+
+BACKEND PERFORMANCE RULES
+-------------------------
+- Redis for hot market state and high-read data where justified.
+- PostgreSQL for transactional truth.
+- Proper indexes for frequent queries.
+- Avoid N+1 query patterns.
+- Paginate order/trade/audit history.
+- Use DTO/projection queries when full entities are not required.
+- Keep transaction boundaries focused.
+- Avoid holding database transactions open while waiting for external network calls.
+- Do not perform unnecessary synchronous work in request threads.
+- Process market updates efficiently.
+- Avoid writing every tick directly to PostgreSQL.
+- Avoid duplicate WebSocket messages to a client.
+- Rate-limit sensitive APIs where appropriate.
+- Monitor slow queries and meaningful application metrics.
+
+REALTIME PERFORMANCE TARGET
+---------------------------
+The target is fast propagation, not a fake fixed number.
+When a provider update arrives and is valid, distribute the internal update to subscribed
+clients with minimal processing overhead.
+
+The system should remain usable even if many users are watching the same 30–35 instruments.
+
+
+====================================================================
+12. PROFESSIONAL UI / UX DIRECTION
+====================================================================
+
+The frontend should feel like a genuine financial product designed by humans.
+
+INSPIRATION
+-----------
+Use the usability patterns of modern retail trading applications such as Groww as inspiration:
+- clear market information
+- simple order entry
+- visible P&L
+- watchlists
+- understandable charts
+- obvious buy/sell actions
+- clean account/portfolio presentation
+
+DO NOT CLONE
+------------
+Do not copy Groww's exact:
+- colors
+- layout
+- components
+- copywriting
+- branding
+- illustrations
+- icons
+- code
+
+VISUAL STYLE
+------------
+Aim for:
+- professional
+- clean
+- calm
+- information-dense where useful
+- easy to scan
+- realistic financial-product spacing
+- restrained typography
+- clear hierarchy
+- practical tables
+- subtle interaction feedback
+- strong empty/loading/error states
+
+AVOID AI-GENERATED LOOK
+-----------------------
+Do NOT create:
+- giant hero gradients everywhere
+- excessive glassmorphism
+- random floating 3D cards
+- neon colors
+- excessive rounded pills
+- pointless animated backgrounds
+- huge marketing text on every page
+- decorative dashboards filled with meaningless metrics
+- overuse of emojis
+- generic "AI startup" visual patterns
+- excessive shadows
+- flashy animations that make a finance app feel like a game
+
+The website should look like a product a real trading software team could have designed.
+
+
+====================================================================
+13. REQUIRED USER-FACING PAGES
+====================================================================
+
+PUBLIC / AUTHENTICATION
+-----------------------
+- Login
+- Registration
+- Authentication/session handling
+
+REGISTRATION BEHAVIOR
+---------------------
+When a user successfully registers:
+1. Create the user.
+2. Create the user's virtual trading account.
+3. Give the account exactly ₹1,00,000 initial virtual capital.
+4. Record the initial deposit in the ledger.
+5. Do not expose a reset button.
+6. Do not allow the user to reset the account to ₹1,00,000 after losses.
+
+MAIN APPLICATION
+----------------
+1. Dashboard
+2. Market / Stocks
+3. Instrument details
+4. Order entry / trading ticket
+5. Orders
+6. Portfolio / Positions
+7. Trade History / Executions
+8. Watchlist
+9. Account
+10. Notifications
+
+DASHBOARD
+---------
+Should show meaningful current information such as:
+- available virtual balance
+- reserved/blocked balance
+- total account value
+- portfolio value
+- today's P&L
+- total P&L
+- active/pending orders
+- recent executions
+- watchlist highlights
+- market status
+
+MARKET PAGE
+-----------
+Show the supported 30–35 instruments with:
+- company name
+- symbol
+- current price
+- change
+- percentage change
+- volume when available
+- market/data status
+
+Provide useful search/filtering without unnecessary complexity.
+
+INSTRUMENT DETAILS PAGE
+-----------------------
+Show:
+- company name
+- symbol
+- current price
+- change and percentage
+- relevant market information
+- chart
+- chart periods
+- user position if any
+- watchlist action
+- BUY action
+- SELL action
+
+ORDER TICKET
+------------
+The order ticket must clearly expose:
+- instrument
+- BUY / SELL
+- DELIVERY / INTRADAY
+- MARKET / LIMIT
+- quantity
+- limit price when applicable
+- estimated order value
+- relevant available balance/quantity
+- validation messages
+- clear confirmation before submission when appropriate
+
+Do not hide important trading information behind confusing UI.
+
+ORDERS PAGE
+-----------
+Support views/filters for:
+- pending
+- accepted
+- partially filled
+- filled
+- cancelled
+- rejected
+- failed
+
+Order details should be inspectable, including order events and executions.
+
+PORTFOLIO / POSITIONS
+---------------------
+Show:
+- current positions
+- product/trading mode where relevant
+- quantity
+- reserved quantity
+- average price
+- current price
+- invested amount
+- current value
+- realized P&L
+- unrealized P&L
+- today's P&L where meaningful
+
+TRADE HISTORY
+-------------
+Show executed trades/executions with:
+- instrument
+- side
+- quantity
+- execution price
+- execution time
+- related order
+- delivery/intraday mode
+
+WATCHLIST
+---------
+Users can create/manage watchlists and monitor selected instruments.
+Watchlist is NOT the same as portfolio.
+
+ACCOUNT
+-------
+Show:
+- profile/account information
+- virtual balance
+- reserved balance
+- ledger/financial history
+- account status
+
+NOTIFICATIONS
+-------------
+Show important events:
+- order accepted
+- order rejected
+- order partially filled
+- order filled
+- order cancelled
+- risk restriction
+- account events
+- market-data warning when relevant
+
+
+====================================================================
+14. ADMIN PRODUCT
+====================================================================
+
+ADMIN is not just a set of CRUD screens.
+
+Admin should have operational purpose.
+
+ADMIN CAPABILITIES
+-------------------
+- User management
+- Trading account status management
+- Supported instrument management
+- Instrument tradability on/off
+- Market/session configuration where appropriate
+- Risk limit configuration
+- System configuration
+- Audit investigation
+- Order/execution investigation
+- Monitoring / health information
+- Data/provider status visibility
+
+Admin actions that affect important business state must themselves be auditable.
+
+
+====================================================================
+15. USER / AUTHENTICATION MODEL
+====================================================================
+
+ROLES
+-----
+USER
+ADMIN
+
+USER permissions:
+- own account
+- own orders
+- own positions
+- own ledger/history
+- own watchlists
+- own notifications
+
+ADMIN permissions:
+- operational/admin features
+- investigation
+- configuration allowed by the product
+
+SECURITY PRINCIPLES
+-------------------
+- Passwords must never be stored in plain text.
+- Market provider credentials must never reach the browser.
+- External provider secrets must remain backend-side.
+- Users must not be able to access another user's financial records.
+- Authorization must be enforced on the backend, not just by hiding frontend routes.
+- Sensitive operations need validation and audit logging.
+- Do not store authentication secrets in browser localStorage if a safer server-managed/session
+  approach is practical.
+
+
+====================================================================
+16. TRADING ACCOUNT
+====================================================================
+
+Each user gets one virtual trading account for the initial product scope.
+
+ACCOUNT DATA
+------------
+Conceptually include:
+- account ID
+- user reference
+- account number/reference
+- status
+- available balance
+- reserved/blocked balance
+- created time
+- updated time
+
+BALANCE PRINCIPLE
+-----------------
+Available balance + reserved balance represents the current virtual cash state subject to
+any separately modeled financial adjustments.
+
+Never rely only on a single current balance with no history.
+The ledger must provide financial movement history.
+
+
+====================================================================
+17. INSTRUMENT MASTER DATA
+====================================================================
+
+Instrument represents a supported tradable security/company.
+
+CONCEPTUAL FIELDS
+-----------------
+- internal instrument ID
+- symbol
+- company/security name
+- exchange
+- instrument type
+- tradability status
+- provider-specific identifier/mapping
+- display metadata needed by frontend
+- timestamps
+
+Provider-specific IDs must be isolated from core business rules.
+
+
+====================================================================
+18. ORDER DOMAIN
+====================================================================
+
+ORDER SIDE
+----------
+BUY
+SELL
+
+ORDER TYPE
+----------
+MARKET
+LIMIT
+
+TRADING MODE / PRODUCT
+----------------------
+DELIVERY
+INTRADAY
+
+These three dimensions are separate.
+
+Example:
+BUY + MARKET + DELIVERY
+BUY + LIMIT + INTRADAY
+SELL + MARKET + INTRADAY
+
+An order should clearly preserve all three values.
+
+
+====================================================================
+19. ORDER STATE MACHINE
+====================================================================
+
+Orders must follow explicit valid state transitions.
+
+PRIMARY FLOW
+------------
+CREATED
+  -> VALIDATING
+  -> ACCEPTED
+  -> PENDING
+  -> PARTIALLY_FILLED
+  -> FILLED
+
+REJECTION FLOW
+--------------
+CREATED
+  -> VALIDATING
+  -> REJECTED
+
+CANCELLATION FLOW
+-----------------
+PENDING
+  -> CANCEL_REQUESTED
+  -> CANCELLED
+
+FAILURE FLOW
+------------
+PENDING
+  -> FAILED
+
+Invalid transitions must be rejected.
+Examples:
+- FILLED -> PENDING
+- CANCELLED -> FILLED
+- REJECTED -> FILLED
+
+The order status must not be freely overwritten by arbitrary service code.
+
+Order event/history should preserve significant status changes and reasons.
+
+
+====================================================================
+20. ORDER VALIDATION
+====================================================================
+
+Before accepting an order, validate:
+
+- authenticated user
+- correct trading account
+- account exists
+- account is active
+- instrument exists
+- instrument is tradable
+- quantity exists
+- quantity > 0
+- valid precision/lot/tick rules if applicable
+- limit price exists for LIMIT orders
+- limit price is valid/positive
+- sufficient BUY funds
+- sufficient SELL quantity according to the supported product rules
+- risk limits
+- market/session conditions
+- data availability/freshness required for execution
+- account/instrument restrictions
+- duplicate request/idempotency
+
+Business validation failures should produce clear, stable error codes/messages.
+
+
+====================================================================
+21. DELIVERY TRADING
+====================================================================
+
+DELIVERY is intended for holdings that can remain after the trading session.
+
+DELIVERY BUY
+------------
+Example:
+BUY 10 TCS DELIVERY
+
+The user pays for the simulated purchase through the virtual account and receives a delivery
+position that remains after the market closes.
+
+DELIVERY SELL
+-------------
+The system verifies the user has sufficient sellable quantity.
+On successful execution, the position quantity is reduced and simulated proceeds are credited.
+
+Delivery positions are not automatically squared off at the end of the trading session.
+
+
+====================================================================
+22. INTRADAY TRADING
+====================================================================
+
+INTRADAY positions are intended to be closed during the same trading session.
+
+The first implementation should keep the financial model understandable and safe.
+Do not introduce real-money leverage or a complicated margin engine just to look advanced.
+
+If short selling is not fully supported by the chosen risk/margin design, keep the initial model
+long-only for intraday and require an existing sellable intraday quantity for SELL.
+Document this limitation rather than creating a fake margin system.
+
+INTRADAY LIFECYCLE
+------------------
+Trading session starts
+    -> intraday order flow
+    -> intraday positions
+    -> user closes positions normally
+    -> square-off window begins
+    -> remaining intraday positions identified
+    -> automatic square-off processing
+    -> simulated execution
+    -> positions closed
+    -> intraday P&L finalized
+
+The square-off rule should be configurable and based on the configured market session.
+The initial simulation can use a 3:20 PM IST square-off trigger to mirror common retail-broker
+behavior, but the time must not be hard-coded into many unrelated components.
+
+
+====================================================================
+23. BUY PROCESS
+====================================================================
+
+Example:
+Virtual available balance = ₹10,000
+BUY 10 shares
+Reference price = ₹500
+Estimated order value = ₹5,000
+
+PROCESS
+-------
+1. Authenticate.
+2. Load account.
+3. Validate account state.
+4. Validate instrument.
+5. Validate order parameters.
+6. Validate market/session/data state.
+7. Validate risk limits.
+8. Validate available funds.
+9. Reserve required funds.
+10. Create order.
+11. Move through legal order states.
+12. Send to internal execution simulator.
+13. Generate one or more executions.
+14. Update ledger.
+15. Update available/reserved balance safely.
+16. Update position.
+17. Recalculate P&L.
+18. Emit order/execution/portfolio events.
+19. Notify user.
+20. Create audit record.
+
+
+====================================================================
+24. SELL PROCESS
+====================================================================
+
+Example:
+User owns 20 TCS shares.
+SELL 10 TCS.
+
+PROCESS
+-------
+1. Authenticate.
+2. Load account.
+3. Validate account.
+4. Validate instrument.
+5. Validate order.
+6. Validate session/data state.
+7. Validate risk rules.
+8. Verify available sellable quantity.
+9. Reserve the quantity.
+10. Create order.
+11. Process through state machine.
+12. Generate execution(s) when eligible.
+13. Reduce position safely.
+14. Credit simulated proceeds according to execution/settlement model.
+15. Update ledger.
+16. Recalculate realized/unrealized P&L.
+17. Release any remaining reserved quantity if needed.
+18. Notify user.
+19. Audit.
+
+
+====================================================================
+25. FUNDS AND QUANTITY RESERVATION
+====================================================================
+
+Reservation is required to prevent two simultaneous orders from spending/using the same
+virtual resource.
+
+BUY RESERVATION
+---------------
+If an order needs ₹20,000, reserve that amount before allowing another concurrent BUY to use
+those same funds.
+
+SELL RESERVATION
+----------------
+If an order needs 50 shares, reserve those shares so another concurrent SELL cannot also use them.
+
+When an order is filled, cancelled, rejected or otherwise closed, reservations must be released
+or consumed correctly.
+
+This is a financial consistency requirement.
+
+
+====================================================================
+26. CONCURRENCY / RACE CONDITIONS
+====================================================================
+
+The system must safely handle concurrent requests.
+
+Example failure to prevent:
+User has ₹10,000.
+Two requests arrive at the same time.
+Each tries to buy ₹8,000.
+
+A naive implementation could allow both and produce an impossible negative or overcommitted
+balance.
+
+TradeCore must use appropriate transaction boundaries, locking/atomic operations and database
+constraints so financial state remains correct.
+
+Do not claim concurrency protection merely because a method is marked transactional; reason about
+actual race conditions and what data is being locked/updated.
+
+
+====================================================================
+27. IDEMPOTENCY
+====================================================================
+
+A mobile/browser request can time out even though the backend has successfully created an order.
+If the client retries, the system must not create a duplicate financial operation.
+
+Support idempotency for important mutating operations, especially order creation.
+
+Conceptual behavior:
+Same idempotency key + same relevant request
+    -> return/reuse the original result
+
+Same key + materially different request
+    -> reject as an idempotency conflict
+
+Persist enough information to make this behavior reliable.
+
+
+====================================================================
+28. RISK MANAGEMENT
+====================================================================
+
+Risk checks happen before execution.
+
+Possible rules:
+- maximum order amount
+- maximum order quantity
+- daily trading value limit
+- maximum portfolio exposure
+- account-level restrictions
+- instrument-level restrictions
+- configurable trading restrictions
+
+Risk limits should be data/configuration driven where practical.
+
+A risk rejection must explain the business reason to the user and should be auditable.
+
+
+====================================================================
+29. EXECUTION SIMULATOR
+====================================================================
+
+The execution engine is an internal simulation engine.
+It must NOT place real trades with the market provider.
+
+MARKET ORDER
+------------
+If bid/ask is available:
+- BUY should prefer the current ask.
+- SELL should prefer the current bid.
+
+If bid/ask is unavailable:
+- use the latest valid LTP/current quote according to the simulator's defined fallback rule.
+
+Do not simply use a 5-second-old screen price if a newer valid market state exists.
+
+LIMIT ORDER
+-----------
+A BUY LIMIT order becomes execution-eligible when the market state satisfies the BUY limit
+condition.
+A SELL LIMIT order becomes execution-eligible when the market state satisfies the SELL limit
+condition.
+
+PARTIAL FILLS
+-------------
+One order can produce multiple executions.
+
+Example:
+BUY 100 shares
+Execution 1: 40 @ ₹1420
+Execution 2: 35 @ ₹1422
+Execution 3: 25 @ ₹1423
+
+The order becomes FILLED only after the full requested quantity has executed.
+
+The simulator should have an explicit and explainable partial-fill/liquidity rule.
+Do not use arbitrary random numbers without recording/explaining why a fill occurred.
+
+EXECUTION RECORD
+----------------
+Persist:
+- execution ID
+- order ID
+- instrument
+- side
+- trading mode
+- executed quantity
+- execution price
+- execution timestamp
+- relevant market reference (where available)
+- fees if implemented
+- simulator/reference metadata needed for audit/reconstruction
+
+
+====================================================================
+30. POSITION MANAGEMENT
+====================================================================
+
+A position represents the user's holding/exposure in an instrument and must preserve the
+relevant trading-mode/product semantics.
+
+Conceptual fields:
+- account
+- instrument
+- product/trading mode
+- quantity
+- reserved quantity
+- average price
+- realized P&L
+- current/reference price
+- updated timestamp
+
+AVERAGE PRICE
+-------------
+Average price must be based on actual executed quantities/prices, not on order request price.
+
+REALIZED P&L
+------------
+P&L resulting from quantity that has been closed/sold.
+
+UNREALIZED P&L
+--------------
+P&L on currently open quantity using the latest valid market price.
+
+Do not mix realized and unrealized P&L.
+
+
+====================================================================
+31. PORTFOLIO
+====================================================================
+
+Portfolio is the user's combined view of positions and valuation.
+
+Should provide:
+- invested value
+- current value
+- total P&L
+- realized P&L
+- unrealized P&L
+- today's P&L where meaningful
+- positions
+- exposure information
+
+During market hours, unrealized valuation uses the latest valid market quote.
+After market close, the end-of-day valuation can use the valid closing market price.
+
+
+====================================================================
+32. LEDGER
+====================================================================
+
+Do NOT maintain only a mutable balance.
+
+Every important financial movement needs a ledger record.
+
+Possible ledger event/types:
+- INITIAL_DEPOSIT
+- TRADE_DEBIT
+- TRADE_CREDIT
+- FEE
+- REVERSAL
+- ADJUSTMENT
+- OTHER controlled virtual-financial events where justified
+
+Example:
+INITIAL_DEPOSIT  +₹1,00,000
+BUY_SETTLEMENT   -₹20,000
+FEE                 -₹50
+SELL_PROCEEDS      +₹5,000
+
+Ledger records should be append-oriented and auditable.
+Corrections should use compensating/reversal entries rather than silently rewriting history.
+
+
+====================================================================
+33. TRADING FEES
+====================================================================
+
+Fees are optional in the earliest core implementation but the design should support them cleanly.
+
+If implemented:
+- fee calculation must be deterministic/configurable
+- fee must be recorded in the ledger
+- order/execution totals must remain mathematically consistent
+
+Do not add fake complex taxes/charges unless there is a clear business reason and the rules are
+understood.
+
+
+====================================================================
+34. SETTLEMENT-LIKE PROCESSING
+====================================================================
+
+The core simulation can perform immediate or simplified settlement-like bookkeeping as long as
+it remains internally consistent.
+
+Do NOT pretend this is actual stock-exchange settlement.
+
+If a settlement state is modeled later:
+Execution
+ -> settlement processing
+ -> ledger/balance update
+ -> position finalization
+
+The basic order/execution/position/ledger flow must work correctly before additional settlement
+complexity is introduced.
+
+
+====================================================================
+35. MARKET-DATA FAILURE HANDLING
+====================================================================
+
+External market data can fail.
+
+EXPECTED BEHAVIOR
+-----------------
+Provider working:
+    Data status = LIVE
+
+Provider temporarily stops:
+    retain last known valid market state
+    record last update time
+    mark data STALE
+
+Longer failure:
+    mark data UNAVAILABLE
+
+When data returns:
+    validate/normalize new data
+    update internal market state
+    mark data LIVE
+    resume realtime distribution
+
+CRITICAL SAFETY RULE
+--------------------
+Market-data failure must NOT corrupt:
+- balances
+- reservations
+- orders/history
+- executions already recorded
+- positions
+- ledger
+- audit trail
+
+If current market information is required to safely execute an order and the data is stale or
+unavailable, the order should be rejected or kept from execution according to the defined order
+policy. Do not execute using clearly unreliable data.
+
+
+====================================================================
+36. REALTIME FRONTEND EVENTS
+====================================================================
+
+WebSocket should distribute only relevant changes.
+
+Potential event categories:
+- MARKET_QUOTE_UPDATE
+- MARKET_STATUS_UPDATE
+- ORDER_UPDATE
+- EXECUTION_UPDATE
+- POSITION_UPDATE
+- PORTFOLIO_UPDATE
+- NOTIFICATION
+
+Do not broadcast every event to every user if the user is not entitled or does not need it.
+Market updates can be scoped to the instruments being watched/subscribed to.
+User-specific financial updates must be authenticated and scoped to that user.
+
+The frontend should reconnect automatically after temporary WebSocket disconnection.
+Use sensible backoff and restore the subscription state.
+
+The UI should never break permanently because the WebSocket briefly disconnects.
+
+
+====================================================================
+37. ORDER + EXECUTION + PORTFOLIO EVENT FLOW
+====================================================================
+
+Conceptual event chain:
+
+Order accepted
+    -> execution processing
+    -> execution created
+    -> order status updated
+    -> ledger updated
+    -> position updated
+    -> portfolio valuation updated
+    -> notification generated
+    -> audit record created
+    -> realtime events delivered
+
+The final implementation does NOT require Kafka.
+In-process/domain events plus reliable transactional handling are acceptable for a modular
+monolith.
+
+Do not use asynchronous processing in a way that can leave balance, position and ledger in an
+inconsistent state. Financial state transitions must have a reliable consistency strategy.
+
+
+====================================================================
+38. NOTIFICATIONS
+====================================================================
+
+Important user events:
+- order accepted
+- order rejected
+- order partially filled
+- order filled
+- order cancelled
+- risk restriction
+- important account event
+- market-data warning
+
+Notification records should support unread/read state.
+
+
+====================================================================
+39. AUDIT TRAIL
+====================================================================
+
+Audit important operations so the system can answer: "What happened?"
+
+Examples:
+- user registration
+- initial virtual deposit
+- order creation
+- order acceptance
+- order rejection
+- order cancellation
+- execution
+- balance-affecting event
+- position-changing event
+- risk limit changes
+- admin actions
+- provider/system status events where useful
+
+Audit records should include enough metadata to investigate without storing unnecessary sensitive
+information.
+
+
+====================================================================
+40. ANALYTICS
+====================================================================
+
+Analytics are secondary to trading/order management.
+
+Possible analytics:
+- daily P&L
+- total P&L
+- realized P&L
+- unrealized P&L
+- number of trades
+- trading volume
+- winning/losing trades
+- order acceptance/rejection statistics
+- portfolio performance
+
+Do not let analytics become the main purpose of the system.
+
+
+====================================================================
+41. CORE DOMAIN ENTITIES
+====================================================================
+
+Use meaningful entities. The following are the conceptual core model.
+
+1. USER
+   - identity/profile information
+   - authentication-related state
+   - role
+   - account status
+
+2. TRADING_ACCOUNT
+   - user reference
+   - account status
+   - available balance
+   - reserved balance
+   - account metadata
+
+3. INSTRUMENT
+   - symbol
+   - company name
+   - exchange
+   - type
+   - tradability
+   - provider mapping
+
+4. MARKET_QUOTE
+   - current snapshot/latest quote information
+   - timestamp/freshness/status
+
+5. MARKET_CANDLE
+   - time bucket
+   - open/high/low/close
+   - volume
+   - resolution
+
+6. MARKET_SESSION
+   - trading date
+   - session state
+   - open/close/square-off times
+   - holiday/working-day information
+
+7. ORDER
+   - account
+   - instrument
+   - side
+   - order type
+   - delivery/intraday mode
+   - requested quantity
+   - executed quantity
+   - remaining quantity
+   - limit price when applicable
+   - status
+   - timestamps
+   - idempotency reference
+
+8. ORDER_EVENT
+   - order reference
+   - previous state
+   - new state
+   - event type
+   - reason
+   - timestamp
+
+9. EXECUTION / TRADE
+   - order reference
+   - instrument
+   - side
+   - product/mode
+   - executed quantity
+   - execution price
+   - timestamps
+   - market reference/simulator metadata
+
+10. POSITION
+    - account
+    - instrument
+    - trading mode/product
+    - quantity
+    - reserved quantity
+    - average price
+    - realized P&L data
+
+11. LEDGER_ENTRY
+    - account
+    - amount/direction
+    - type
+    - reference to order/execution where appropriate
+    - timestamp
+    - description/reason
+
+12. RISK_LIMIT
+    - scope
+    - limit type
+    - configured value
+    - status
+    - effective dates/settings where required
+
+13. WATCHLIST
+    - user/account ownership
+    - name
+    - timestamps
+
+14. WATCHLIST_ITEM
+    - watchlist
+    - instrument
+    - ordering/timestamps
+
+15. NOTIFICATION
+    - user
+    - type
+    - title/message
+    - read state
+    - created time
+
+16. AUDIT_LOG
+    - actor
+    - action
+    - entity/reference
+    - timestamp
+    - relevant metadata
+
+17. IDEMPOTENCY_RECORD
+    - user/account context
+    - idempotency key
+    - request fingerprint
+    - original result/reference
+    - state
+    - timestamps/expiry policy
+
+The final database model may split or combine data only when there is a strong reason.
+Do not create entities just to increase the entity count.
+
+
+====================================================================
+42. IMPORTANT RELATIONSHIPS
+====================================================================
+
+USER
+ -> TRADING_ACCOUNT
+
+TRADING_ACCOUNT
+ -> ORDER
+ -> POSITION
+ -> LEDGER_ENTRY
+ -> WATCHLIST
+
+ORDER
+ -> ORDER_EVENT
+ -> EXECUTION
+
+POSITION
+ -> INSTRUMENT
+
+ORDER / EXECUTION
+ -> INSTRUMENT
+
+WATCHLIST
+ -> WATCHLIST_ITEM
+ -> INSTRUMENT
+
+INSTRUMENT
+ -> MARKET_QUOTE
+ -> MARKET_CANDLE
+
+USER
+ -> NOTIFICATION
+ -> AUDIT LOG (as actor when appropriate)
+
+ADMIN / USER ACTION
+ -> AUDIT LOG
+
+Keep financial ownership explicit so cross-user access is impossible by accident.
+
+
+====================================================================
+43. DATABASE DESIGN PRINCIPLES
+====================================================================
+
+PostgreSQL is the primary transactional source of truth.
+
+Use:
+- foreign keys
+- unique constraints
+- check constraints where helpful
+- indexes based on real queries
+- proper numeric types for financial values
+- UTC timestamps internally where practical, with IST/market timezone conversion for display
+- explicit status/type fields
+- optimistic versioning or locking strategies where required
+- transactional operations for financial state changes
+
+Do not use floating-point primitives for money where exact decimal behavior is required.
+Use a precise database/application representation appropriate for currency and prices.
+
+The database must preserve history rather than silently overwriting important financial events.
+
+
+====================================================================
+44. REDIS DESIGN
+====================================================================
+
+Redis is NOT the financial source of truth.
+
+Good Redis use cases:
+- latest quote/current market state
+- hot instrument data
+- short-lived idempotency coordination where appropriate
+- rate limiting
+- temporary WebSocket/subscription coordination
+- frequently read non-financial data
+
+Do not put the only copy of a user's financial balance, ledger or execution history in Redis.
+
+If the Redis cache disappears, PostgreSQL must remain authoritative and the application should be
+able to rebuild/reload required hot state.
+
+
+====================================================================
+45. MARKET DATA INTERNAL LAYERS
+====================================================================
+
+Recommended conceptual separation:
+
+A. PROVIDER ADAPTER
+   Talks to the current Upstox API and knows provider-specific formats.
+
+B. NORMALIZER / VALIDATOR
+   Converts provider data into TradeCore's internal format and rejects malformed values.
+
+C. MARKET ENGINE
+   Maintains the latest valid market state, freshness and market/session interpretation.
+
+D. HISTORICAL AGGREGATOR
+   Produces/updates candles and retention-aware history.
+
+E. DISTRIBUTION
+   Publishes relevant changes to backend consumers and WebSocket clients.
+
+F. EXECUTION INPUT
+   Supplies a consistent latest-valid quote to the simulator.
+
+The order engine should depend on internal market interfaces/data, not directly on Upstox API.
+
+
+====================================================================
+46. FAILURE CASES THE PROJECT MUST HANDLE
+====================================================================
+
+Handle at least:
+- invalid login
+- duplicate registration
+- unauthorized access
+- account disabled/suspended
+- instrument missing
+- instrument not tradable
+- invalid quantity
+- zero/negative quantity
+- invalid limit price
+- insufficient funds
+- insufficient sellable quantity
+- risk limit exceeded
+- market/session closed for unsupported order
+- stale market data
+- unavailable market data
+- duplicate order submission
+- invalid order-state transition
+- cancellation of an already filled order
+- cancellation of an already cancelled order
+- partial fill
+- failed execution simulation
+- WebSocket disconnect
+- provider disconnect
+- provider malformed data
+- PostgreSQL transaction failure
+- Redis unavailable
+- concurrent orders against the same account
+- duplicate event processing where relevant
+
+Errors should be understandable to the user and detailed enough in logs/audit for operators,
+without leaking internal secrets or stack traces to the browser.
+
+
+====================================================================
+47. OBSERVABILITY / MONITORING
+====================================================================
+
+Use Spring Boot Actuator for:
+- health
+- readiness/liveness where configured
+- useful application info
+- metrics
+
+Useful business/technical metrics may include:
+- market-data connection status
+- market updates processed
+- stale/unavailable duration
+- active WebSocket connections
+- order acceptance/rejection counts
+- execution counts
+- partial-fill counts
+- order processing latency
+- failed transactions
+- slow database queries
+- cache hit/miss where meaningful
+
+Logging should be structured enough to trace an order across validation, execution, ledger and
+position updates without logging sensitive credentials.
+
+
+====================================================================
+48. API DESIGN DIRECTION
+====================================================================
+
+The frontend must communicate with Spring Boot through clear REST APIs and authenticated
+WebSocket channels.
+
+The final API design should logically cover:
+
+AUTH
+- registration
+- login
+- logout/session
+- current user/profile
+
+MARKET
+- instruments list
+- instrument detail
+- current quote
+- chart/history
+- market/session status
+
+WATCHLIST
+- list watchlists
+- add/remove instrument
+- create/remove watchlist where supported
+
+ORDERS
+- create order
+- cancel order
+- list orders
+- order details
+- order events
+
+EXECUTIONS
+- list trade/execution history
+- execution details where useful
+
+PORTFOLIO
+- positions
+- portfolio summary
+- P&L
+
+ACCOUNT
+- balance summary
+- ledger history
+
+NOTIFICATIONS
+- list notifications
+- mark read
+
+ADMIN
+- user/admin operations
+- instrument management
+- risk configuration
+- operational monitoring/audit
+
+Use pagination for histories and stable filtering/sorting.
+Do not make the frontend call internal module implementation endpoints that expose unnecessary
+backend details.
+
+
+====================================================================
+49. FRONTEND STATE STRATEGY
+====================================================================
+
+Separate state by nature.
+
+SERVER DATA / QUERY DATA
+------------------------
+- user profile
+- order history
+- trade history
+- portfolio records
+- ledger
+- instrument metadata
+- chart data
+
+LIVE STATE
+----------
+- current quotes
+- market status
+- data freshness
+- order status updates
+- execution notifications
+
+FORM STATE
+----------
+- order quantity
+- order type
+- limit price
+- selected trading mode
+- validation state
+
+Do not duplicate the same financial state in many unrelated frontend stores.
+The backend remains authoritative.
+
+When a realtime event arrives, update only the affected UI state rather than refetching the
+entire application unnecessarily.
+
+
+====================================================================
+50. ORDER TICKET UX
+====================================================================
+
+The order entry experience is one of the most important screens.
+
+The user should see something similar to:
+
+Instrument: TCS
+Current Price: ₹3,400.00
+
+[ BUY ] [ SELL ]
+
+[ DELIVERY ] [ INTRADAY ]
+
+[ MARKET ] [ LIMIT ]
+
+Quantity: 10
+Limit Price: (only for LIMIT)
+
+Estimated Value: ₹34,000
+Available Funds: ₹100,000
+
+[ Place Order ]
+
+Before submission, show useful confirmation information.
+After submission, immediately show the accepted/pending state and then reflect realtime state
+changes without requiring refresh.
+
+The UI must make it difficult to accidentally submit an invalid or unintended order.
+
+
+====================================================================
+51. FRONTEND RESPONSIVENESS
+====================================================================
+
+Desktop is important, but the application should be responsive on smaller screens.
+
+Desktop layout may use:
+- sidebar/navigation
+- main content
+- compact watchlist/order/portfolio panels
+
+Mobile layout should reorganize rather than simply shrink everything.
+
+Trading actions must remain accessible without horizontal scrolling where possible.
+
+Tables should adapt using responsive columns, expandable rows, or card/list presentation when
+necessary.
+
+
+====================================================================
+52. LOADING / EMPTY / ERROR STATES
+====================================================================
+
+Every important screen should have intentional states:
+- loading
+- empty
+- no results
+- market closed
+- data stale
+- provider unavailable
+- request failed
+- permission denied
+- invalid order
+
+Do not use broken blank spaces or fake content.
+
+Example:
+If a watchlist is empty, show a useful message and a clear way to add an instrument.
+If market data is stale, show the last update time and status.
+
+
+====================================================================
+53. NO FAKE DATA IN THE NORMAL PRODUCT FLOW
+====================================================================
+
+The production-style application should not silently fall back to fake/random stock prices.
+
+Seed/sample data may be used for development and testing, but the normal market screen must
+clearly identify whether values are live, stale, unavailable, or test/simulated data.
+
+Do not mix fake market prices into real market data and call the result live.
+
+
+====================================================================
+54. SECURITY + DATA ISOLATION
+====================================================================
+
+A user must only be able to access their own:
+- trading account
+- orders
+- executions
+- positions
+- ledger
+- watchlists
+- notifications
+
+Admin access must be explicit.
+
+Backend authorization must be tested, not assumed from frontend route restrictions.
+
+Prevent:
+- IDOR-style access to another user's order/account ID
+- privilege escalation
+- mass assignment of protected financial fields
+- exposure of provider secrets
+- insecure debug endpoints in production-like configuration
+
+
+====================================================================
+55. BUSINESS CONSISTENCY RULES
+====================================================================
+
+Important invariants:
+
+1. A FILLED order cannot later become PENDING/CANCELLED.
+2. An executed quantity cannot exceed requested order quantity.
+3. Order executed quantity + remaining quantity must remain mathematically consistent.
+4. Reserved funds cannot exceed available/eligible account funds.
+5. Reserved sell quantity cannot exceed available sellable position quantity.
+6. Ledger entries must correspond to valid financial events.
+7. Position quantity cannot become negative under the supported trading model.
+8. Realized P&L must be based on actual closed quantities and execution prices.
+9. Unrealized P&L must use a valid current/reference market price.
+10. Duplicate requests must not create duplicate financial effects.
+11. Every important order status change must be explainable through order events/audit data.
+12. External market-data failure must not rewrite or corrupt financial truth.
+13. Redis loss must not destroy permanent financial history.
+14. Provider-specific fields must not leak into core domain assumptions.
+
+
+====================================================================
+56. SAMPLE END-TO-END DELIVERY BUY
+====================================================================
+
+User:
+A registered TradeCore user.
+
+Starting account:
+₹1,00,000 virtual capital.
+
+Instrument:
+TCS.
+
+Live market reference:
+₹3,400.
+
+Request:
+BUY 10 TCS, MARKET, DELIVERY.
+
+Expected flow:
+
+Authentication
+ -> account lookup
+ -> account active check
+ -> instrument validation
+ -> market/session validation
+ -> risk validation
+ -> funds validation
+ -> reserve required funds
+ -> order CREATED/VALIDATING
+ -> ACCEPTED
+ -> PENDING
+ -> execution simulator
+ -> execution(s)
+ -> FILLED/partial state
+ -> ledger movement
+ -> available/reserved balance update
+ -> delivery position update
+ -> portfolio/P&L update
+ -> notification
+ -> audit
+ -> realtime frontend update
+
+
+====================================================================
+57. SAMPLE END-TO-END INTRADAY BUY
+====================================================================
+
+Request:
+BUY 10 TCS, MARKET, INTRADAY.
+
+During the trading session:
+- position is marked INTRADAY
+- user can close it through a SELL order
+
+Near the configured square-off time:
+- identify remaining intraday positions
+- generate automatic square-off operation
+- process through the same execution/risk/financial rules where appropriate
+- close remaining intraday quantity
+- update realized P&L
+- notify user
+- audit the automatic action
+
+There must be no leftover intraday position after successful square-off processing.
+
+
+====================================================================
+58. SAMPLE LIMIT BUY
+====================================================================
+
+User submits:
+BUY 10 RELIANCE
+LIMIT
+₹1,400
+DELIVERY
+
+Current market price is ₹1,425.
+
+Expected:
+- validate request
+- reserve the appropriate financial resource according to the chosen reservation policy
+- create accepted/pending limit order
+- do NOT execute merely because the user submitted it
+- wait for qualifying market conditions
+- once the condition is met, pass the current valid market state to the simulator
+- generate execution(s)
+- update order, ledger, position and notification state
+
+
+====================================================================
+59. ACCOUNT LOSS BEHAVIOR
+====================================================================
+
+Initial registration grants:
+₹1,00,000.
+
+There is NO user-facing reset option.
+
+There is NO unlimited virtual deposit button.
+
+If the user loses their funds through trading:
+- balance can reach zero or a low amount according to valid simulated results
+- user cannot reset the account to the initial amount
+- the history remains visible
+- prior losses remain part of the user's trading history
+
+Do not create a game-like "start over" feature.
+
+
+====================================================================
+60. ARCHITECTURE
+====================================================================
+
+Use a MODULAR MONOLITH.
+
+Conceptual structure:
+
+Next.js Frontend
+        |
+        | REST + WebSocket
+        v
+Spring Boot Application
+        |
+        +-- Security / Identity
+        +-- User / Account
+        +-- Instrument / Market
+        +-- Order Management
+        +-- Risk Management
+        +-- Execution Simulator
+        +-- Position / Portfolio
+        +-- Ledger
+        +-- Notification
+        +-- Audit
+        +-- Analytics
+        +-- Admin
+        +-- Scheduled Processing
+        |
+        +--------------------+
+        |                    |
+        v                    v
+    PostgreSQL             Redis
+        ^
+        |
+External Market Provider Adapter
+        ^
+        |
+    Upstox API
+
+The internal modules should have clear responsibilities even though they are deployed as a
+single Spring Boot application.
+
+Do not create 10 microservices just to look impressive.
+
+
+====================================================================
+61. SCHEDULED PROCESSING
+====================================================================
+
+Use scheduled jobs only for genuine business/maintenance needs, such as:
+- session transitions
+- intraday square-off trigger
+- end-of-day processing
+- historical candle finalization
+- temporary data cleanup
+- retention/retirement
+- maintenance/reconciliation
+
+A scheduled job must be idempotent where a duplicate run could otherwise produce duplicate
+financial effects.
+
+
+====================================================================
+62. RECONCILIATION / SELF-CHECKS
+====================================================================
+
+A strong financial simulation should have internal checks that can detect impossible states.
+
+Examples:
+- account balance/reservations mismatch
+- position quantity mismatch
+- order executed quantity mismatch
+- duplicate ledger effect
+- stale order stuck in impossible state
+- intraday position remaining after square-off completion
+
+These checks may be exposed through admin/monitoring or scheduled verification.
+They must not silently modify financial truth without an auditable correction process.
+
+
+====================================================================
+63. DEVELOPMENT ORDER
+====================================================================
+
+The AI coding agent MUST build the project incrementally and use a phase-gate approach.
+A later phase must not be started simply because the agent can generate the code. The current
+phase must be sufficiently implemented, built/tested, and reviewed before moving forward.
+
+PHASE 0 — DISCOVERY / EXISTING PROJECT BASELINE
+- inspect the current repository and directory structure
+- inspect existing Spring Boot and Next.js applications
+- inspect pom.xml, package configuration, environment/configuration files and existing tests
+- inspect current database/migration state
+- inspect current Git status and uncommitted work
+- identify what is already implemented versus missing
+- do not recreate an existing application
+- do not overwrite working code just to match a preferred structure
+
+GATE:
+- current project state is understood
+- project builds/tests at the current baseline, or existing failures are documented
+
+PHASE 1 — FOUNDATION
+- repository/project structure only where genuinely missing
+- environment/configuration
+- PostgreSQL
+- Redis
+- Spring Boot baseline
+- Next.js baseline
+- security foundation
+
+GATE:
+- backend starts successfully
+- frontend starts successfully
+- database connection works
+- Redis connection works
+- baseline tests/build pass
+
+PHASE 2 — DOMAIN + DATABASE
+- entities/value objects
+- constraints
+- forward-only migrations/schema
+- repositories
+- seed/configurable instruments
+
+GATE:
+- database schema is valid
+- constraints are verified
+- repository tests pass
+- financial fields use exact decimal-safe representations
+
+PHASE 3 — MARKET DATA
+- provider adapter boundary
+- Upstox API integration
+- normalization
+- freshness/status
+- Redis current state
+- candles/history
+- market session/calendar
+
+GATE:
+- provider data is mapped into the internal provider-neutral model
+- no provider credentials reach the frontend
+- LIVE/STALE/UNAVAILABLE behavior is testable
+- market-data failure cannot corrupt financial state
+- no fake/random prices are used in normal live flow
+
+PHASE 4 — ORDER CORE
+- order creation
+- validation
+- reservation
+- state machine
+- cancellation
+- idempotency
+- authorization boundaries
+
+GATE:
+- legal/illegal transitions are tested
+- duplicate requests are tested
+- concurrent reservation behavior is tested
+- insufficient funds/quantity behavior is tested
+
+PHASE 5 — EXECUTION
+- market orders
+- limit orders
+- partial fills
+- execution records
+- execution reference/context
+
+GATE:
+- execution quantity never exceeds requested quantity
+- partial fills update remaining quantity correctly
+- market/limit conditions are deterministic and explainable
+- execution records are auditable
+
+PHASE 6 — FINANCIAL PROCESSING
+- ledger
+- balance updates
+- positions
+- average price
+- realized/unrealized P&L
+- portfolio
+
+GATE:
+- ledger, balance, position and order state remain consistent
+- realized and unrealized P&L are independently verified
+- important financial invariants have automated tests
+
+PHASE 7 — INTRADAY
+- intraday positions
+- square-off
+- end-of-session processing
+- scheduled processing/idempotency
+
+GATE:
+- remaining intraday positions are correctly identified and closed
+- repeated scheduler execution cannot duplicate financial effects
+- delivery positions remain after market close
+
+PHASE 8 — REALTIME
+- authenticated WebSocket channels
+- market updates
+- order/execution/portfolio notifications
+- reconnect/resubscribe behavior
+
+GATE:
+- only relevant market data is distributed
+- private user events are isolated
+- disconnect/reconnect behavior is verified
+- no unnecessary REST polling is introduced for live updates
+
+PHASE 9 — FRONTEND PRODUCT
+- dashboard
+- market
+- instrument pages
+- charts
+- order ticket
+- orders
+- portfolio
+- history
+- watchlist
+- account
+- notifications
+- loading/empty/error/stale states
+- responsive desktop/mobile behavior
+
+GATE:
+- frontend consumes backend APIs rather than external market providers directly
+- order placement and state updates work end-to-end
+- normal trading workflows do not require full-page refreshes
+- UI is usable with zero holdings/orders and with provider/data failures
+
+PHASE 10 — ADMIN + OBSERVABILITY
+- admin functionality
+- audit investigation
+- operational status
+- Actuator/metrics
+- provider status visibility
+
+GATE:
+- admin authorization is tested
+- important admin actions are audited
+- useful health/metrics endpoints are available
+
+PHASE 11 — HARDENING
+- concurrency tests
+- idempotency tests
+- failure tests
+- authorization tests
+- performance tests
+- UI responsiveness checks
+- data consistency/reconciliation checks
+- cleanup of accidental duplication or dead code
+
+GATE:
+- regression suite is passing
+- critical invariants are verified
+- no known high-severity consistency/security issue remains
+- project can be demonstrated end-to-end
+
+Do not rush to build every screen before the financial/order core is correct.
+Do not move to a later phase only because a feature "looks complete" in the UI.
+
+
+====================================================================
+64. TESTING REQUIREMENTS
+====================================================================
+
+The project is not complete when the pages render.
+
+TEST BUSINESS RULES
+--------------------
+At minimum test:
+- registration gives exactly ₹1,00,000
+- duplicate registration behavior
+- insufficient BUY funds
+- concurrent BUY orders cannot overspend
+- insufficient SELL quantity
+- concurrent SELL orders cannot oversell
+- valid/invalid order states
+- cancellation rules
+- limit-order conditions
+- partial fills
+- average price
+- realized P&L
+- unrealized P&L
+- ledger consistency
+- intraday square-off
+- delivery persistence across market close
+- stale market-data behavior
+- provider disconnect/reconnect
+- idempotency
+- user isolation
+- admin authorization
+
+TEST REALTIME
+-------------
+- reconnect after WebSocket disconnect
+- subscription updates
+- no duplicate event processing where applicable
+- relevant user receives own order update
+- unrelated users do not receive private account events
+
+TEST FRONTEND
+-------------
+- fast initial navigation
+- error states
+- empty states
+- loading states
+- mobile layout
+- order validation
+- realtime quote updates
+- stale/unavailable indicators
+- no full page refresh required after order state updates
+
+
+====================================================================
+65. REALISM RULES
+====================================================================
+
+The project should resemble the behavior of a simplified retail trading application, but it
+must not pretend to be an actual brokerage or exchange.
+
+Do not claim:
+- real execution
+- real settlement
+- real brokerage account
+- real investor money
+- guaranteed exchange-level execution
+
+Use clear product wording such as:
+- Virtual Trading
+- Simulated Execution
+- Real Market Data when available
+- Market Data Status: LIVE/STALE/UNAVAILABLE
+
+The visual and business flows should be realistic without making false financial claims.
+
+
+====================================================================
+66. WHAT NOT TO BUILD
+====================================================================
+
+Do NOT let the project become:
+- only CRUD
+- only a portfolio tracker
+- only a stock chart site
+- only a fake stock game
+- only an analytics dashboard
+- only an AI stock prediction system
+- a real-money application
+- a real broker execution integration
+- a clone of Groww
+- a microservice showcase with no business need
+- a huge full-market exchange simulator
+- a random-price generator disguised as live data
+- an application dependent on the external provider for user financial truth
+
+
+====================================================================
+67. WHAT MAKES THIS A STRONG BACKEND PROJECT
+====================================================================
+
+The key engineering demonstration is:
+
+User request
+ -> validation
+ -> risk checks
+ -> concurrency-safe resource reservation
+ -> transactional order creation
+ -> explicit state machine
+ -> idempotency
+ -> simulated execution
+ -> multiple executions / partial fill
+ -> ledger
+ -> balance
+ -> position
+ -> portfolio
+ -> P&L
+ -> notification
+ -> audit
+ -> realtime update
+
+This chain should be easy to demonstrate in a project presentation and interview.
+
+
+====================================================================
+68. AI CODING AGENT + TERMINAL DEVELOPMENT WORKFLOW
+====================================================================
+
+This project is intended to be developed by an AI coding agent working DIRECTLY inside the
+existing TradeCore repository from the terminal/IDE environment.
+
+The agent is NOT expected to generate a new ZIP project for every change.
+
+The working model is:
+
+    Existing TradeCore repository
+            |
+            v
+    AI coding agent in terminal
+            |
+            +--> inspect current files
+            +--> inspect current tests/build state
+            +--> implement one scoped task
+            +--> run validation
+            +--> review changes
+            |
+            v
+    Same TradeCore repository continues to the next task
+
+The same project directory is the source of implementation truth. The specification is the
+source of product/behavior truth.
+
+68.1 FIRST-RUN DISCOVERY
+------------------------
+Before making code changes, the agent MUST:
+
+1. Read this complete specification.
+2. Inspect the repository tree.
+3. Inspect existing backend/frontend build files and configuration.
+4. Inspect existing tests.
+5. Inspect database/migration files and current schema strategy.
+6. Inspect the current Git status.
+7. Identify the current implementation phase.
+8. Identify existing working features that must not be broken.
+9. Check whether the requested feature already exists before creating new classes/modules.
+10. Record any existing build/test failures before changing them.
+
+The agent MUST continue from the existing project rather than regenerate the project from scratch.
+
+68.2 DIRECT REPOSITORY WORK
+---------------------------
+The agent MUST:
+
+- work inside the current TradeCore project directory
+- edit the actual project files
+- preserve existing working code
+- create new files only when the feature actually requires them
+- keep package/module structure consistent with the current project
+- use the existing build system and dependency management
+- reuse existing utilities/components when appropriate
+- inspect neighboring code before introducing new patterns
+
+The agent MUST NOT:
+
+- generate a new ZIP after each task
+- replace the whole repository with a newly generated project
+- copy the same classes into alternate packages
+- create parallel versions of the same service/controller/repository
+- delete working code merely because another implementation style is preferred
+- move large parts of the project without a concrete reason
+- introduce unrelated refactoring during feature work
+
+ZIP/export generation is allowed only when the user explicitly asks for an archive.
+
+68.3 TASK-SCOPED IMPLEMENTATION
+-------------------------------
+The agent MUST work on ONE major scoped task at a time.
+
+For every task:
+
+1. Understand the requested behavior.
+2. Find the existing code relevant to the behavior.
+3. Identify dependencies and affected modules.
+4. State a short implementation plan.
+5. Make the smallest cohesive set of changes that satisfies the task.
+6. Run targeted tests/build checks.
+7. Fix failures caused by the implementation.
+8. Review the resulting diff and check for unintended changes.
+9. Report what changed and what was verified.
+10. Stop at the task boundary unless the user asks for the next task.
+
+Do not combine unrelated features simply because they can be coded together.
+
+68.4 PLAN BEFORE LARGE CHANGES
+------------------------------
+For architectural, financial, database, security or cross-module changes, the agent should plan
+before editing.
+
+The plan should identify:
+- affected modules
+- affected entities/tables
+- API changes
+- transaction boundaries
+- concurrency implications
+- security/authorization implications
+- test cases
+- migration implications
+- realtime/event implications
+
+Do not write a large amount of code before understanding these dependencies.
+
+68.5 VALIDATION LOOP
+--------------------
+After a logical implementation change, the agent MUST validate it.
+
+Preferred loop:
+
+    Inspect
+      ->
+    Plan
+      ->
+    Implement
+      ->
+    Compile/build
+      ->
+    Run focused tests
+      ->
+    Run broader tests where appropriate
+      ->
+    Inspect changed files
+      ->
+    Continue
+
+A green frontend screen is not sufficient proof that a financial workflow is correct.
+
+For financial features, verify:
+- database state
+- transaction behavior
+- invariants
+- status transitions
+- ledger effects
+- position effects
+- duplicate-request behavior
+- concurrent-request behavior
+
+If validation fails, fix the root cause before starting another unrelated feature.
+
+68.6 NEVER HIDE FAILURES
+------------------------
+The agent MUST NOT:
+
+- delete failing tests to make the build green
+- weaken assertions merely to pass tests
+- disable validation because it is inconvenient
+- swallow exceptions without a justified business reason
+- silently replace a real provider failure with fake market data
+- claim success when build/tests have not been run
+- ignore a known consistency problem because the UI appears correct
+
+Existing failures that predate the current task should be reported separately from failures introduced
+by the current task.
+
+68.7 GIT / CHANGE SAFETY
+------------------------
+Use Git as the change-safety mechanism.
+
+The agent should:
+- inspect Git status before major work
+- keep changes reviewable
+- avoid destructive Git commands
+- never silently reset/discard the user's work
+- never force-push or publish changes unless explicitly asked
+- suggest a commit point after a meaningful validated milestone
+
+Before a large risky change, the agent should identify what can be safely reverted.
+
+68.8 DATABASE / MIGRATION SAFETY
+-------------------------------
+Database changes are high-risk.
+
+The agent MUST:
+- inspect existing schema/migration history before changing it
+- prefer forward migrations
+- avoid rewriting old migrations that may already have been applied
+- preserve foreign keys and important constraints
+- consider concurrent requests against the affected rows
+- never casually drop production-like financial tables/columns
+- verify that application models and database schema agree
+
+If a destructive migration is unavoidable for the requested scope, it must be clearly identified before
+execution and not hidden inside an unrelated change.
+
+68.9 DEPENDENCY SAFETY
+----------------------
+Before adding a library:
+- check whether the project already has a suitable dependency
+- confirm that the library solves a real requirement
+- keep the dependency set understandable
+- avoid adding multiple libraries for the same job
+
+Do not upgrade unrelated dependencies merely because newer versions exist.
+Do not change framework versions during ordinary feature implementation unless version compatibility
+requires it.
+
+68.10 FINANCIAL CODE SAFETY
+---------------------------
+Financial code receives stricter treatment than normal CRUD code.
+
+Before modifying order, balance, reservation, execution, position, P&L or ledger logic, the agent
+MUST review the relevant business invariants in this specification.
+
+Every financial change should consider:
+- exact decimal arithmetic
+- transaction boundary
+- row/version locking or equivalent concurrency control
+- idempotency
+- duplicate event/request behavior
+- failure/rollback behavior
+- order-state legality
+- balance/position/ledger consistency
+- auditability
+
+Never update a user's balance as an isolated mutable field change without considering the corresponding
+financial history and consistency model.
+
+68.11 MARKET-DATA INTEGRATION SAFETY
+------------------------------------
+The current market-data provider is Upstox API.
+
+The agent MUST keep provider-specific logic inside the market-data integration boundary.
+
+The core order/risk/position/ledger/portfolio logic MUST consume TradeCore's internal normalized market
+model rather than directly depending on Upstox payload classes or provider-specific assumptions.
+
+The agent MUST:
+- inspect the actual provider interface available to the project
+- use only supported fields/capabilities
+- keep credentials and tokens backend-side
+- validate and normalize incoming data
+- track data freshness
+- handle provider disconnect/reconnect
+- prevent stale/unavailable data from being mistaken for LIVE data
+- avoid fake/random prices in the normal live product flow
+
+If the provider cannot supply a requested feature directly, do not invent a capability. Use an explicit
+supported fallback, existing stored data, or clearly mark the capability as unavailable.
+
+68.12 FRONTEND/BACKEND BOUNDARY
+-------------------------------
+Next.js is the product UI.
+Spring Boot is the business authority.
+
+The frontend MUST NOT be the authority for:
+- account balance
+- order validity
+- risk decisions
+- position quantity
+- execution state
+- ledger truth
+
+The backend MUST enforce authorization even when the frontend already hides a screen or route.
+
+The frontend should request only the data required by the screen and should not call the external market
+provider directly.
+
+68.13 REALTIME DEVELOPMENT RULE
+-------------------------------
+Do not create independent one-second polling loops for each stock or widget.
+
+Use the existing backend market-data flow and authenticated WebSocket distribution strategy.
+
+Realtime UI updates must:
+- update only affected UI state where practical
+- avoid full-page refreshes
+- avoid duplicate subscriptions
+- reconnect safely after temporary disconnects
+- preserve user-specific event isolation
+
+68.14 CODE QUALITY / MAINTAINABILITY
+-------------------------------------
+Prefer:
+- clear names
+- small focused classes
+- cohesive modules
+- explicit business rules
+- understandable control flow
+- meaningful validation
+- useful error codes
+- testable services
+- DTOs at API boundaries where appropriate
+
+Avoid:
+- clever abstractions without a real benefit
+- unnecessary generic frameworks inside the project
+- deep inheritance hierarchies
+- duplicate business rules
+- massive service classes
+- controllers containing financial business logic
+- provider-specific logic spread through the application
+- comments that merely restate obvious code
+
+68.15 TEST-FIRST THINKING FOR HIGH-RISK RULES
+---------------------------------------------
+For high-risk business behavior, define the expected behavior before implementation and then verify it.
+
+At minimum, think through:
+- valid order
+- invalid order
+- insufficient funds
+- insufficient quantity
+- duplicate request
+- concurrent request
+- cancellation
+- partial fill
+- limit condition
+- provider unavailable
+- stale data
+- transaction failure
+- WebSocket reconnect
+- intraday square-off
+
+A feature is not complete because its happy path works.
+
+68.16 NO UNRELATED "IMPROVEMENTS"
+----------------------------------
+When the user asks to implement or fix a specific feature, do not use the opportunity to:
+- redesign unrelated modules
+- rename large numbers of files
+- replace working libraries
+- rewrite the frontend
+- change the database technology
+- introduce microservices
+- introduce Kafka/Kubernetes/Elasticsearch
+- add AI/ML features that are not part of the specification
+
+Make related corrections only when they are necessary for correctness, security, compatibility or
+successful integration of the requested feature.
+
+68.17 USER-CONTROLLED ITERATION
+-------------------------------
+The user should be able to inspect the real project in IntelliJ after each meaningful milestone.
+
+After a milestone, the agent should provide:
+- files/modules changed
+- behavior implemented
+- tests/build checks performed
+- any remaining known issue
+- the next logical milestone, without automatically starting it
+
+The agent MUST NOT silently continue through the entire roadmap after one broad instruction if doing so
+would make review and debugging difficult.
+
+68.18 TERMINAL / IDE CONTINUITY
+-------------------------------
+The user may run the AI coding agent from the IntelliJ terminal or another terminal positioned at the
+TradeCore repository root.
+
+The development process should preserve continuity across tasks:
+
+    Same repository
+      + same source files
+      + same database model
+      + same Git history
+      + same specification
+      + same test suite
+      = continuous project development
+
+Do not treat each prompt as a brand-new project.
+
+68.19 COMMUNICATION STYLE FOR THIS PROJECT
+-------------------------------------------
+When explaining implementation to the user:
+- use simple language
+- use exact file paths
+- give copy-paste commands when needed
+- avoid dumping unrelated code
+- distinguish what changed from what was merely considered
+- clearly mention when a decision depends on the actual provider/API behavior
+- challenge incorrect assumptions instead of blindly implementing them
+- do not restart project ideation
+
+68.20 FINAL AGENT RULE
+----------------------
+The AI coding agent is a developer working inside an existing project, not a ZIP-file generator.
+
+The correct behavior is:
+
+    inspect existing project
+        ->
+    understand the requested task
+        ->
+    change the existing project
+        ->
+    validate
+        ->
+    review
+        ->
+    leave the repository ready for the next task
+
+Correctness, consistency, security and maintainability are more important than generating a large
+amount of code quickly.
+
+
+====================================================================
+69. FRONTEND "NOT AI GENERATED" QUALITY BAR
+====================================================================
+
+The AI must design the UI as a real product, not as a generated template.
+
+For every screen, ask:
+- What would a real trader need to see first?
+- Which information is primary and which is secondary?
+- Can the user understand the state in one glance?
+- Is there unnecessary decoration?
+- Are numbers aligned and easy to scan?
+- Does the UI behave correctly when data is missing/stale?
+- Does the interaction make sense on desktop and mobile?
+- Does the page still look professional with zero portfolio holdings or zero orders?
+- Does an error tell the user what to do next?
+
+Avoid repetitive cards where a table, compact row, chart or simple text is more appropriate.
+
+Use visual hierarchy based on business importance, not on adding more components.
+
+
+====================================================================
+70. PERFORMANCE "NOT SLOW" QUALITY BAR
+====================================================================
+
+The AI must proactively look for:
+- unnecessary API round trips
+- duplicate API calls
+- large initial JavaScript bundles
+- chart libraries loaded on every page
+- full page rerenders caused by quote updates
+- database N+1 queries
+- unbounded history queries
+- writing every market tick to PostgreSQL
+- synchronous network calls inside database transactions
+- repeated market-provider calls from multiple components
+- WebSocket message storms
+- large JSON payloads when a compact projection would work
+
+When a performance issue is found, prefer a simple measurable fix.
+
+Examples:
+- cache stable data
+- send compact DTOs
+- paginate
+- use projections
+- lazy-load charts
+- batch updates
+- use Redis for hot state
+- use WebSocket for live updates
+- index common queries
+- keep transaction scope small
+
+
+====================================================================
+71. FINAL PROJECT DESCRIPTION
+====================================================================
+
+Use this description when documentation/README/project overview is needed:
+
+"TradeCore is a retail trading-learning platform with a realistic order-management and
+portfolio-processing backend. It uses real market data for a controlled set of Indian
+companies while keeping all money, orders, executions and portfolio activity virtual. Users
+receive ₹1,00,000 of virtual capital when they register and cannot reset the account after
+losses. The platform supports delivery and intraday trading, market and limit orders, explicit
+order-state transitions, risk checks, concurrency-safe fund/quantity reservation, idempotent
+order submission, simulated execution with partial fills, positions, realized and unrealized
+P&L, an auditable financial ledger, notifications, WebSocket-based realtime updates, market
+data freshness handling, and administrative controls. The frontend is built with Next.js and
+the backend with Spring Boot, PostgreSQL is the transactional source of truth, Redis is used
+for fast current-state access and supporting coordination, and the current Upstox API market-data
+integration is isolated behind a replaceable provider boundary so another market-data provider
+can be introduced later without redesigning the trading core."
+
+
+====================================================================
+72. FINAL DECISION CHECKLIST
+====================================================================
+
+PROJECT
+TradeCore
+
+FRONTEND
+Next.js
+
+BACKEND
+Java + Spring Boot
+
+DATABASE
+PostgreSQL
+
+CACHE / SUPPORT
+Redis
+
+REALTIME
+WebSocket
+
+CURRENT MARKET DATA SOURCE
+Upstox API
+
+FUTURE MARKET DATA PROVIDER POSSIBILITY
+Another provider may replace Upstox later
+
+PROVIDER IMPLEMENTATION RULE
+Provider-specific logic must remain isolated behind the adapter boundary
+
+PROVIDER COUPLING
+Must be isolated/replaceable
+
+INITIAL MARKET UNIVERSE
+Approximately 30–35 real companies
+
+MARKET DATA
+Real when provider is available
+
+TRADING MONEY
+Virtual only
+
+INITIAL VIRTUAL CAPITAL
+₹1,00,000 at registration
+
+ACCOUNT RESET
+Not allowed
+
+WITHDRAWAL OF REAL MONEY
+Not supported
+
+REAL TRADE EXECUTION
+Not supported
+
+ORDER SIDES
+BUY / SELL
+
+ORDER TYPES
+MARKET / LIMIT
+
+TRADING MODES
+DELIVERY / INTRADAY
+
+INTRADAY SQUARE-OFF
+Required; configurable; initial simulation can trigger at 3:20 PM IST
+
+ORDER LIFECYCLE
+Explicit state machine
+
+PARTIAL FILLS
+Supported
+
+EXECUTION
+Simulated
+
+LEDGER
+Required
+
+POSITION/P&L
+Required
+
+AUDIT
+Required
+
+IDEMPOTENCY
+Required for important mutating requests, especially orders
+
+CONCURRENCY SAFETY
+Required
+
+LIVE FRONTEND UPDATES
+Required
+
+MARKET DATA STATUS
+LIVE / STALE / UNAVAILABLE
+
+MARKET SESSION AWARENESS
+Required
+
+HISTORICAL CHARTS
+Required
+
+CHART PERIODS
+1D / 1W / 1M / 6M / 1Y / 3Y / 5Y / ALL
+
+CHART TYPES
+Line + Candlestick
+
+ARCHITECTURE
+Modular monolith
+
+PRIMARY GOAL
+Professional, realistic order-management/backend system
+
+UI GOAL
+Fast, clean, human-designed, realistic retail trading experience
+
+NOT A GOAL
+Groww clone, fake AI dashboard, real-money broker, unnecessary microservices
+
+
+====================================================================
+73. DEFINITION OF DONE
+====================================================================
+
+The project is only considered complete when:
+
+- A user can register and receives exactly ₹1,00,000 virtual capital.
+- A user can log in securely.
+- Market data can enter through the Upstox provider adapter.
+- The implementation uses the existing TradeCore repository directly; ZIP regeneration is not part of the normal development workflow.
+- The frontend can display current market data through the backend.
+- Market values update through WebSocket without manual refresh.
+- Data freshness/status is visible and honest.
+- The application understands market sessions.
+- A user can create DELIVERY and INTRADAY orders.
+- A user can create BUY and SELL orders.
+- A user can create MARKET and LIMIT orders.
+- Invalid orders are rejected with useful explanations.
+- Funds/quantity are reserved safely.
+- Concurrent orders cannot violate financial invariants.
+- Duplicate requests do not create duplicate financial effects.
+- Orders follow valid state transitions.
+- Orders can be cancelled only when allowed.
+- Market orders use current valid market information.
+- Limit orders wait for qualifying price conditions.
+- Partial fills are possible and handled correctly.
+- Executions are permanently recorded.
+- Ledger entries reflect financial movements.
+- Positions are updated from executions.
+- Average price is calculated from actual executions.
+- Realized and unrealized P&L are separated.
+- Portfolio valuation updates with current market data.
+- Intraday positions are squared off according to the configured rule.
+- Delivery positions remain after market close.
+- Notifications are generated for important events.
+- Audit history can explain important operations.
+- User data is isolated by authorization rules.
+- Admin functions have legitimate operational purpose.
+- PostgreSQL remains the financial source of truth.
+- Redis loss does not destroy financial history.
+- Provider credentials are never exposed to the browser.
+- The frontend is responsive.
+- The frontend is not visually generic or AI-template-like.
+- The application does not depend on fake/random prices in normal live flow.
+- Important failure scenarios have tests.
+- The application has health/metrics monitoring.
+- The codebase remains understandable and modular.
+- Major changes are implemented incrementally with build/test validation between milestones.
+- Existing tests are preserved and not weakened just to make the build pass.
+
+
+====================================================================
+74. DEVELOPMENT WORKING STYLE
+====================================================================
+
+When implementing this project with the user:
+
+- Explain in simple language.
+- Work one major step at a time.
+- Give exact file paths when code changes are needed.
+- Give complete file contents when practical for important replacements.
+- Give copy-paste commands when required.
+- Respect Windows development environments when commands are involved.
+- Verify the user's output before moving to the next major implementation step.
+- Proactively identify missing business rules and technical risks.
+- Do not dump 20 unrelated implementation tasks at once.
+- Do not restart the project from scratch conceptually.
+- Preserve previous decisions unless this specification explicitly changes them.
+- Think like a project architect: check correctness, concurrency, reliability, security,
+  scalability, data consistency, financial calculations and failure handling.
+- Work in the existing repository from the terminal/IDE; do not regenerate ZIP archives for ordinary
+  iterations.
+- Before each major task, inspect current Git status, implementation state and tests.
+- After each major task, validate the real project and review the changed files before continuing.
+
+
+====================================================================
+75. MASTER PRINCIPLE
+====================================================================
+
+TradeCore should be judged by the quality of its behavior, not by the number of technologies
+used.
+
+The final product should make an interviewer able to follow this story clearly:
+
+"A user receives virtual capital, observes real market data, selects a delivery or intraday
+product, places a market or limit order, passes validation and risk checks, reserves funds or
+quantity safely, the order moves through a state machine, a simulator generates one or more
+executions, the ledger and balance change consistently, the position and P&L are recalculated,
+the user is notified in realtime, and the whole operation is auditable."
+
+That is the core of TradeCore.
+
+END OF MASTER SPECIFICATION
