@@ -73,6 +73,26 @@ final class NseMcpResponseMapper {
         if (!stock.isObject() || !text(stock, "symbol")) {
             throw malformed("Quote response has no stock symbol");
         }
+        return mapStock(stock, payload.path("updatedAt"));
+    }
+
+    static List<MarketQuoteSnapshot> mapEquityStocks(CallToolResult result) {
+        JsonNode payload = payload(result);
+        JsonNode stocks = payload.path("stocks");
+        if (!stocks.isArray()) {
+            throw malformed("Equity-list response has no stocks array");
+        }
+        List<MarketQuoteSnapshot> quotes = new ArrayList<>();
+        for (JsonNode stock : stocks) {
+            if (!stock.isObject() || !text(stock, "symbol")) {
+                throw malformed("Equity-list response contains a stock without a symbol");
+            }
+            quotes.add(mapStock(stock, payload.path("updatedAt")));
+        }
+        return List.copyOf(quotes);
+    }
+
+    private static MarketQuoteSnapshot mapStock(JsonNode stock, JsonNode updatedAt) {
         return new MarketQuoteSnapshot(
                 EXCHANGE,
                 stock.path("symbol").asText(),
@@ -86,7 +106,7 @@ final class NseMcpResponseMapper {
                 integer(stock, "volume"),
                 decimal(stock, "lastTradedPrice"),
                 CM_SOURCE,
-                instant(payload.path("updatedAt"), DateTimeFormatter.ISO_DATE_TIME));
+                instant(updatedAt, DateTimeFormatter.ISO_DATE_TIME));
     }
 
     static List<MarketCandleSnapshot> mapHistory(CallToolResult result) {

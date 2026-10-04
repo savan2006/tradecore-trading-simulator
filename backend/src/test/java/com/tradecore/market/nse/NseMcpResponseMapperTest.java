@@ -39,6 +39,16 @@ class NseMcpResponseMapperTest {
     }
 
     @Test
+    void mapsObservedCmEquityListResponseIntoNormalizedQuotes() throws Exception {
+        var quotes = NseMcpResponseMapper.mapEquityStocks(result(fixture("cm-equity-stocks.json")));
+
+        assertThat(quotes).hasSize(1);
+        assertThat(quotes.get(0).symbol()).isEqualTo("TCS");
+        assertThat(quotes.get(0).lastPrice()).isEqualByComparingTo("2075.0");
+        assertThat(quotes.get(0).dataUpdatedAt()).isEqualTo(Instant.parse("2026-10-04T03:32:27.734817172Z"));
+    }
+
+    @Test
     void mapsDailyHistoricalOhlcvWithoutInventingIntradayTimestamps() throws Exception {
         var candles = NseMcpResponseMapper.mapHistory(result(fixture("bhavcopy-history.json")));
 

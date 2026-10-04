@@ -6,6 +6,7 @@ import com.tradecore.market.InstrumentRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.flywaydb.core.Flyway;
 import org.springframework.dao.DataIntegrityViolationException;
 import jakarta.persistence.EntityManagerFactory;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -15,6 +16,7 @@ import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.Set;
 import java.util.UUID;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -44,6 +46,9 @@ class TradeCoreApplicationTests {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private Flyway flyway;
 
     @Autowired
     private UserRepository userRepository;
@@ -191,6 +196,47 @@ class TradeCoreApplicationTests {
 
         assertThat(instrumentRepository.findByProviderInstrumentKey(providerKey)).isPresent();
         assertThat(instrumentRepository.findAllByTradableTrue()).isNotEmpty();
+    }
+
+    @Test
+    void phaseThreeInstrumentSeedContainsExactlyTheApprovedEightyNseSymbols() {
+        Set<String> actualSymbols = Set.copyOf(jdbcTemplate.queryForList(
+                "SELECT symbol FROM instrument WHERE exchange = 'NSE'", String.class));
+        Set<String> expectedSymbols = Set.of(("""
+                HDFCBANK ICICIBANK SBIN AXISBANK KOTAKBANK INDUSINDBK
+                BAJFINANCE SHRIRAMFIN MUTHOOTFIN HDFCAMC SBILIFE BSE
+                TCS INFY HCLTECH WIPRO TECHM
+                MARUTI M&M EICHERMOT BAJAJ-AUTO TVSMOTOR
+                HINDUNILVR ITC NESTLEIND BRITANNIA TATACONSUM VBL DMART
+                RELIANCE ONGC COALINDIA NTPC POWERGRID TATAPOWER
+                BHARTIARTL INDUSTOWER
+                SUNPHARMA DRREDDY CIPLA DIVISLAB APOLLOHOSP
+                LT BEL HAL SIEMENS ABB
+                TATASTEEL JSWSTEEL HINDALCO VEDL
+                ULTRACEMCO SHREECEM AMBUJACEM DALBHARAT
+                ASIANPAINT PIDILITIND SRF DEEPAKNTR PIIND
+                DLF GODREJPROP PRESTIGE
+                TITAN HAVELLS DIXON
+                TRENT ETERNAL INDHOTEL INDIGO
+                ADANIPORTS CONCOR
+                KPRMILL PAGEIND
+                CAMS
+                SUNTV PVRINOX
+                RVNL IRCON
+                IRCTC
+                """).trim().split("\\s+"));
+
+        assertThat(actualSymbols).hasSize(80).containsExactlyInAnyOrderElementsOf(expectedSymbols)
+                .contains("HDFCBANK", "BAJFINANCE", "TCS", "MARUTI", "RELIANCE", "SUNPHARMA",
+                        "TATASTEEL", "DLF", "TRENT", "ADANIPORTS", "KPRMILL", "CAMS",
+                        "SUNTV", "RVNL", "IRCTC");
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(DISTINCT symbol) FROM instrument WHERE exchange = 'NSE'", Integer.class))
+                .isEqualTo(80);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM instrument WHERE exchange = 'NSE' AND instrument_type <> 'EQUITY'", Integer.class))
+                .isZero();
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("4");
     }
 
     private void insertUser(UUID id, String email) {

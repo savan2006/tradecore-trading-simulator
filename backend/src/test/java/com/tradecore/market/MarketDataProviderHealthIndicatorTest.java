@@ -2,6 +2,7 @@ package com.tradecore.market;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -43,6 +44,7 @@ class MarketDataProviderHealthIndicatorTest {
             @Override public MarketDataConnectivity checkConnectivity() { return connectivity; }
             @Override public List<MarketInstrument> searchInstruments(String query) { throw new UnsupportedOperationException(); }
             @Override public MarketQuoteSnapshot getQuote(String symbol) { throw new UnsupportedOperationException(); }
+            @Override public List<MarketQuoteSnapshot> getQuotes(Collection<String> symbols) { throw new UnsupportedOperationException(); }
             @Override public List<MarketCandleSnapshot> getHistoricalCandles(String symbol, int months, LocalDate endDate) { throw new UnsupportedOperationException(); }
             @Override public Optional<MarketDataFreshness> getDataFreshness() { throw new UnsupportedOperationException(); }
             @Override public Optional<MarketSessionStatus> getMarketSessionStatus() { return Optional.empty(); }

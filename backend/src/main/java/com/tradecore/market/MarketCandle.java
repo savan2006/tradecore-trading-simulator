@@ -19,4 +19,27 @@ public class MarketCandle {
     @Column(nullable = false) private long volume;
     @Column(name = "created_at", nullable = false) private Instant createdAt;
     protected MarketCandle() {}
+
+    public MarketCandle(Instrument instrument, String resolution, Instant bucketStart,
+            MarketCandleSnapshot snapshot, Instant createdAt) {
+        this.instrument = instrument;
+        this.resolution = resolution;
+        this.bucketStart = bucketStart;
+        this.openPrice = snapshot.open();
+        this.highPrice = snapshot.high();
+        this.lowPrice = snapshot.low();
+        this.closePrice = snapshot.close();
+        this.volume = snapshot.volume();
+        this.createdAt = createdAt;
+    }
+
+    public Instrument getInstrument() { return instrument; }
+    public String getResolution() { return resolution; }
+    public Instant getBucketStart() { return bucketStart; }
+    public BigDecimal getOpenPrice() { return openPrice; }
+    public BigDecimal getHighPrice() { return highPrice; }
+    public BigDecimal getLowPrice() { return lowPrice; }
+    public BigDecimal getClosePrice() { return closePrice; }
+    public long getVolume() { return volume; }
+    public Instant getCreatedAt() { return createdAt; }
 }

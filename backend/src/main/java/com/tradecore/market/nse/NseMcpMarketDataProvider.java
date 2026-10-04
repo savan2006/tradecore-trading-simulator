@@ -3,10 +3,14 @@ package com.tradecore.market.nse;
 import java.net.URI;
 import java.time.LocalDate;
 import java.time.Instant;
-import java.util.List;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.TreeMap;
 import java.util.concurrent.TimeoutException;
 
 import com.tradecore.market.MarketCandleSnapshot;
@@ -60,6 +64,63 @@ public class NseMcpMarketDataProvider implements MarketDataProvider {
     public MarketQuoteSnapshot getQuote(String symbol) {
         return NseMcpResponseMapper.mapQuote(call(
                 properties.marketLiveEndpoint(), "cm_get_stock_quote", Map.of("symbol", symbol)));
+    }
+
+    @Override
+    public List<MarketQuoteSnapshot> getQuotes(Collection<String> symbols) {
+        if (symbols == null || symbols.isEmpty() || symbols.stream().anyMatch(symbol -> symbol == null || symbol.isBlank())) {
+            throw new IllegalArgumentException("At least one non-empty market symbol is required");
+        }
+        Set<String> requested = Set.copyOf(symbols);
+        if (requested.size() != symbols.size()) {
+            throw new IllegalArgumentException("Market symbol requests must be unique");
+        }
+        var prefixGroups = new TreeMap<String, List<String>>();
+        for (String symbol : requested) {
+            prefixGroups.computeIfAbsent(symbol.substring(0, 1), ignored -> new ArrayList<>()).add(symbol);
+        }
+
+        McpSyncClient client = null;
+        try {
+            client = createClient(properties.marketLiveEndpoint());
+            client.initialize();
+            var quotes = new LinkedHashMap<String, MarketQuoteSnapshot>();
+            for (var group : prefixGroups.entrySet()) {
+                collectEquityQuotes(client, group.getKey(), group.getValue(), quotes);
+            }
+            return List.copyOf(quotes.values());
+        } catch (RuntimeException exception) {
+            throw providerFailure(exception);
+        } finally {
+            close(client);
+        }
+    }
+
+    private void collectEquityQuotes(McpSyncClient client, String prefix, List<String> requested,
+            Map<String, MarketQuoteSnapshot> quotes) {
+        List<MarketQuoteSnapshot> response = NseMcpResponseMapper.mapEquityStocks(client.callTool(
+                new CallToolRequest("cm_get_equity_stocks", Map.of("limit", 500, "symbolFilter", prefix))));
+        int limit = 500;
+        Set<String> requestedSet = Set.copyOf(requested);
+        for (MarketQuoteSnapshot quote : response) {
+            if (requestedSet.contains(quote.symbol())) {
+                quotes.put(quote.symbol(), quote);
+            }
+        }
+        if (response.size() < limit) {
+            return;
+        }
+
+        var moreSpecific = new TreeMap<String, List<String>>();
+        for (String symbol : requested) {
+            if (symbol.length() > prefix.length()) {
+                String nextPrefix = symbol.substring(0, prefix.length() + 1);
+                moreSpecific.computeIfAbsent(nextPrefix, ignored -> new ArrayList<>()).add(symbol);
+            }
+        }
+        for (var group : moreSpecific.entrySet()) {
+            collectEquityQuotes(client, group.getKey(), group.getValue(), quotes);
+        }
     }
 
     @Override

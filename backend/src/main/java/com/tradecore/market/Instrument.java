@@ -18,4 +18,12 @@ public class Instrument {
     @Column(name = "created_at", nullable = false) private Instant createdAt;
     @Column(name = "updated_at", nullable = false) private Instant updatedAt;
     protected Instrument() {}
+
+    public UUID getId() { return id; }
+    public String getSymbol() { return symbol; }
+    public String getCompanyName() { return companyName; }
+    public String getExchange() { return exchange; }
+    public String getInstrumentType() { return instrumentType; }
+    public String getCurrency() { return currency; }
+    public boolean isTradable() { return tradable; }
 }

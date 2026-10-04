@@ -25,5 +25,6 @@ pnpm-debug.log*
 .idea/httpRequests/
 .idea/dataSources/
 .idea/dataSources.local.xml
+.idea/inspectionProfiles/
 .DS_Store
 Thumbs.db

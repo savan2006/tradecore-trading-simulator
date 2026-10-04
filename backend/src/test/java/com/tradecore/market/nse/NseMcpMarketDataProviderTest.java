@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -69,6 +70,19 @@ class NseMcpMarketDataProviderTest {
             assertThat(quote.symbol()).isEqualTo("TCS");
             assertThat(quote.lastPrice()).isEqualByComparingTo("2075.0");
             assertThat(quote.dataSource()).isEqualTo("NSE_MCP_CM_MARKET");
+        }
+    }
+
+    @Test
+    void retrievesQuoteBatchThroughEquityListCapability() throws Exception {
+        try (var server = new LocalMcpServer(false)) {
+            var quotes = provider(server, Duration.ofSeconds(1)).getQuotes(List.of("TCS"));
+
+            assertThat(server.lastToolName()).isEqualTo("cm_get_equity_stocks");
+            assertThat(server.lastToolArguments().path("limit").asInt()).isEqualTo(500);
+            assertThat(server.lastToolArguments().path("symbolFilter").asText()).isEqualTo("T");
+            assertThat(quotes).hasSize(1);
+            assertThat(quotes.get(0).symbol()).isEqualTo("TCS");
         }
     }
 
@@ -177,9 +191,11 @@ class NseMcpMarketDataProviderTest {
                 JsonNode params = request.path("params");
                 lastToolName = params.path("name").asText();
                 lastToolArguments = params.path("arguments");
+                String payload = "cm_get_equity_stocks".equals(lastToolName)
+                        ? "{\"segment\":\"EQUITY\",\"updatedAt\":\"2026-10-04T03:32:27.734817172Z\",\"returned\":1,\"stocks\":[{\"symbol\":\"TCS\",\"openPrice\":2052.6,\"highPrice\":2093.9,\"lowPrice\":2045.1,\"preClosePrice\":2050.6,\"lastTradedPrice\":2075.0,\"volume\":3428501,\"latestTimestamp\":\"2026-10-01 16:00:28\"}]}"
+                        : "{\"updatedAt\":\"2026-10-04T03:32:27.734817172Z\",\"stock\":{\"symbol\":\"TCS\",\"openPrice\":2052.6,\"highPrice\":2093.9,\"lowPrice\":2045.1,\"lastTradedPrice\":2075.0,\"volume\":3428501,\"latestTimestamp\":\"2026-10-01 16:00:28\"}}";
                 sendResult(exchange, request.path("id"), Map.of(
-                        "content", java.util.List.of(Map.of("type", "text", "text",
-                                "{\"updatedAt\":\"2026-10-04T03:32:27.734817172Z\",\"stock\":{\"symbol\":\"TCS\",\"openPrice\":2052.6,\"highPrice\":2093.9,\"lowPrice\":2045.1,\"lastTradedPrice\":2075.0,\"volume\":3428501,\"latestTimestamp\":\"2026-10-01 16:00:28\"}}")),
+                        "content", List.of(Map.of("type", "text", "text", payload)),
                         "isError", false), false);
                 return;
             }
