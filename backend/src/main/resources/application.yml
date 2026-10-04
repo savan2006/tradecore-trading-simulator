@@ -50,6 +50,14 @@ tradecore:
     user: ${TRADECORE_SECURITY_USER:tradecore-dev}
     password: ${TRADECORE_SECURITY_PASSWORD}
   market-data:
+    scheduling:
+      quote-enabled: ${TRADECORE_MARKET_DATA_QUOTE_REFRESH_ENABLED:true}
+      quote-interval: ${TRADECORE_MARKET_DATA_QUOTE_REFRESH_INTERVAL:PT5M}
+      candle-enabled: ${TRADECORE_MARKET_DATA_CANDLE_REFRESH_ENABLED:true}
+      candle-cron: ${TRADECORE_MARKET_DATA_CANDLE_REFRESH_CRON:0 0 18 * * MON-FRI}
+      timezone: ${TRADECORE_MARKET_DATA_TIMEZONE:Asia/Kolkata}
+      regular-session-open: ${TRADECORE_MARKET_DATA_SESSION_OPEN:09:15}
+      regular-session-close: ${TRADECORE_MARKET_DATA_SESSION_CLOSE:15:30}
     nse-mcp:
       market-live-endpoint: ${TRADECORE_NSE_MCP_MARKET_LIVE_ENDPOINT:https://mcp.nseindia.in/cmmkt/mcp}
       bhavcopy-endpoint: ${TRADECORE_NSE_MCP_BHAVCOPY_ENDPOINT:https://mcp.nseindia.in/bhavcopy/cm/mcp}
