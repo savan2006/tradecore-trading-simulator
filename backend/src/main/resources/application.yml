@@ -46,6 +46,12 @@ management:
     defaults:
       enabled: true
 tradecore:
+  execution:
+    scheduling:
+      enabled: ${TRADECORE_EXECUTION_ENABLED:true}
+      interval: ${TRADECORE_EXECUTION_INTERVAL:PT5S}
+  intraday:
+    square-off-check-interval: ${TRADECORE_INTRADAY_SQUARE_OFF_CHECK_INTERVAL:PT30S}
   security:
     user: ${TRADECORE_SECURITY_USER:tradecore-dev}
     password: ${TRADECORE_SECURITY_PASSWORD}

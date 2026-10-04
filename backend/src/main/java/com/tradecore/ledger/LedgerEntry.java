@@ -31,6 +31,19 @@ public class LedgerEntry {
         this.occurredAt = occurredAt;
     }
 
+    public static LedgerEntry trade(TradingAccount account, Execution execution, BigDecimal amount,
+            String description, Instant occurredAt) {
+        LedgerEntry entry = new LedgerEntry();
+        entry.account = account;
+        entry.entryType = amount.signum() < 0 ? "TRADE_DEBIT" : "TRADE_CREDIT";
+        entry.amount = amount.setScale(4, java.math.RoundingMode.HALF_UP);
+        entry.currency = account.getCurrency();
+        entry.execution = execution;
+        entry.description = description;
+        entry.occurredAt = occurredAt;
+        return entry;
+    }
+
     public String getEntryType() { return entryType; }
     public BigDecimal getAmount() { return amount; }
     public String getCurrency() { return currency; }

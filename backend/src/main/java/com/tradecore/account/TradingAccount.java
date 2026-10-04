@@ -38,4 +38,46 @@ public class TradingAccount {
     public BigDecimal getAvailableBalance() { return availableBalance; }
     public BigDecimal getReservedBalance() { return reservedBalance; }
     public Instant getCreatedAt() { return createdAt; }
+
+    public void reserveFunds(BigDecimal amount, Instant now) {
+        if (!"ACTIVE".equals(status)) {
+            throw new IllegalStateException("Trading account is not active");
+        }
+        if (amount == null || amount.signum() <= 0 || availableBalance.compareTo(amount) < 0) {
+            throw new IllegalStateException("Insufficient available virtual funds");
+        }
+        availableBalance = availableBalance.subtract(amount);
+        reservedBalance = reservedBalance.add(amount);
+        updatedAt = now;
+    }
+
+    public void settleBuy(BigDecimal reservedAmount, BigDecimal actualAmount, Instant now) {
+        if (reservedAmount == null || actualAmount == null || reservedAmount.signum() < 0 || actualAmount.signum() <= 0
+                || reservedBalance.compareTo(reservedAmount) < 0) {
+            throw new IllegalStateException("Invalid BUY reservation settlement");
+        }
+        BigDecimal topUp = actualAmount.subtract(reservedAmount).max(BigDecimal.ZERO);
+        if (availableBalance.compareTo(topUp) < 0) {
+            throw new IllegalStateException("Insufficient available balance for execution price");
+        }
+        availableBalance = availableBalance.subtract(topUp)
+                .add(reservedAmount.subtract(actualAmount).max(BigDecimal.ZERO));
+        reservedBalance = reservedBalance.subtract(reservedAmount);
+        updatedAt = now;
+    }
+
+    public void creditSale(BigDecimal amount, Instant now) {
+        if (amount == null || amount.signum() <= 0) throw new IllegalArgumentException("Sale proceeds must be positive");
+        availableBalance = availableBalance.add(amount);
+        updatedAt = now;
+    }
+
+    public void releaseReservedFunds(BigDecimal amount, Instant now) {
+        if (amount == null || amount.signum() <= 0 || reservedBalance.compareTo(amount) < 0) {
+            throw new IllegalStateException("Invalid or unavailable BUY reservation");
+        }
+        reservedBalance = reservedBalance.subtract(amount);
+        availableBalance = availableBalance.add(amount);
+        updatedAt = now;
+    }
 }

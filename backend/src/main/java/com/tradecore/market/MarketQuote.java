@@ -50,6 +50,8 @@ public class MarketQuote {
 
     public Instrument getInstrument() { return instrument; }
     public BigDecimal getLastPrice() { return lastPrice; }
+    public BigDecimal getBidPrice() { return bidPrice; }
+    public BigDecimal getAskPrice() { return askPrice; }
     public BigDecimal getPreviousClose() { return previousClose; }
     public BigDecimal getOpenPrice() { return openPrice; }
     public BigDecimal getHighPrice() { return highPrice; }

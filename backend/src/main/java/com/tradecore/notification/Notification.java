@@ -16,4 +16,17 @@ public class Notification {
     @Column(name = "read_at") private Instant readAt;
     @Column(name = "created_at", nullable = false) private Instant createdAt;
     protected Notification() {}
+
+    public Notification(User user, String notificationType, String title, String message, Instant createdAt) {
+        this.user = user; this.notificationType = notificationType; this.title = title;
+        this.message = message; this.createdAt = createdAt;
+    }
+    public UUID getId() { return id; }
+    public User getUser() { return user; }
+    public String getNotificationType() { return notificationType; }
+    public String getTitle() { return title; }
+    public String getMessage() { return message; }
+    public Instant getCreatedAt() { return createdAt; }
+    public Instant getReadAt() { return readAt; }
+    public void markRead(Instant at) { if (readAt == null) readAt = at; }
 }

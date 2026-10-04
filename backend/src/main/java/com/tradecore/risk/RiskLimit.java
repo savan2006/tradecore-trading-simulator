@@ -21,4 +21,9 @@ public class RiskLimit {
     @Column(name = "effective_until") private Instant effectiveUntil;
     @Column(name = "created_at", nullable = false) private Instant createdAt;
     protected RiskLimit() {}
+
+    public String getScope() { return scope; }
+    public String getLimitType() { return limitType; }
+    public BigDecimal getLimitValue() { return limitValue; }
+    public boolean isEnabled() { return enabled; }
 }

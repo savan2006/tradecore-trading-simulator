@@ -14,4 +14,13 @@ public class WatchlistItem {
     @Column(name = "sort_order", nullable = false) private int sortOrder;
     @Column(name = "created_at", nullable = false) private Instant createdAt;
     protected WatchlistItem() {}
+
+    public WatchlistItem(Watchlist watchlist, Instrument instrument, int sortOrder, Instant now) {
+        this.watchlist = watchlist; this.instrument = instrument; this.sortOrder = sortOrder; this.createdAt = now;
+    }
+    public UUID getId() { return id; }
+    public Watchlist getWatchlist() { return watchlist; }
+    public Instrument getInstrument() { return instrument; }
+    public int getSortOrder() { return sortOrder; }
+    public Instant getCreatedAt() { return createdAt; }
 }

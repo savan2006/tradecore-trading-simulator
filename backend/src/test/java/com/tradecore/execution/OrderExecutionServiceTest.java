@@ -1,0 +1,281 @@
+package com.tradecore.execution;
+
+import com.tradecore.account.TradingAccountRepository;
+import com.tradecore.identity.RegistrationRequest;
+import com.tradecore.identity.RegistrationResponse;
+import com.tradecore.identity.UserRegistrationService;
+import com.tradecore.market.MarketHoursPolicy;
+import com.tradecore.order.OrderPlacementRequest;
+import com.tradecore.order.OrderPlacementService;
+import com.tradecore.order.TradingOrderRepository;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+
+import java.math.BigDecimal;
+import java.sql.Timestamp;
+import java.time.Instant;
+import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
+
+@SpringBootTest(properties = {
+        "spring.datasource.url=jdbc:h2:mem:tradecore-execution-test;MODE=PostgreSQL;DB_CLOSE_DELAY=-1;LOCK_TIMEOUT=10000",
+        "spring.datasource.password=", "spring.datasource.driver-class-name=org.h2.Driver",
+        "spring.jpa.database-platform=org.hibernate.dialect.H2Dialect", "spring.data.redis.host=localhost",
+        "spring.data.redis.port=6379", "tradecore.security.user=execution-test",
+        "tradecore.security.password=execution-test-password", "tradecore.execution.scheduling.enabled=false"
+})
+class OrderExecutionServiceTest {
+    @Autowired private JdbcTemplate jdbc;
+    @Autowired private UserRegistrationService registration;
+    @Autowired private OrderPlacementService placement;
+    @Autowired private OrderExecutionService execution;
+    @Autowired private TradingOrderRepository orders;
+    @MockitoSpyBean private MarketHoursPolicy marketHours;
+    @MockitoSpyBean private com.tradecore.ledger.LedgerEntryRepository ledger;
+    private UUID instrumentId;
+
+    @BeforeEach
+    void setup() {
+        instrumentId = jdbc.queryForObject("select id from instrument where exchange='NSE' and symbol='TCS'", UUID.class);
+        doReturn(true).when(marketHours).isRegularSession(any(Instant.class));
+        putQuote("100", "101", "99", Instant.now(), "OPEN");
+    }
+
+    @Test
+    void marketBuyExecutesAndSettlesBalancePositionLedgerEventAndOrder() {
+        Account user = account();
+        UUID order = place(user, "BUY", "MARKET", 2, null);
+
+        assertThat(execution.executePending(order)).isTrue();
+
+        assertThat(jdbc.queryForObject("select status from trading_order where id=?", String.class, order)).isEqualTo("FILLED");
+        assertThat(jdbc.queryForObject("select executed_quantity from trading_order where id=?", Long.class, order)).isEqualTo(2L);
+        assertThat(jdbc.queryForObject("select price from execution where order_id=?", BigDecimal.class, order)).isEqualByComparingTo("101");
+        assertThat(jdbc.queryForObject("select count(*) from execution where order_id=?", Integer.class, order)).isEqualTo(1);
+        assertBalance(user.account, "99798.0000", "0.0000");
+        assertThat(jdbc.queryForObject("select quantity from position where account_id=?", Long.class, user.account)).isEqualTo(2L);
+        assertThat(jdbc.queryForObject("select average_price from position where account_id=?", BigDecimal.class, user.account)).isEqualByComparingTo("101");
+        assertThat(jdbc.queryForObject("select entry_type from ledger_entry where account_id=? and entry_type<>'INITIAL_DEPOSIT'", String.class, user.account)).isEqualTo("TRADE_DEBIT");
+        assertThat(jdbc.queryForObject("select amount from ledger_entry where account_id=? and entry_type='TRADE_DEBIT'", BigDecimal.class, user.account)).isEqualByComparingTo("-202.0000");
+        assertEvent(order);
+    }
+
+    @Test
+    void marketSellExecutesCreditsAndRealizesPositionPnl() {
+        Account user = account();
+        seedPosition(user.account, 5, 0, "100");
+        UUID order = place(user, "SELL", "MARKET", 2, null);
+
+        assertThat(execution.executePending(order)).isTrue();
+
+        assertBalance(user.account, "100198.0000", "0.0000");
+        assertThat(jdbc.queryForObject("select quantity from position where account_id=?", Long.class, user.account)).isEqualTo(3L);
+        assertThat(jdbc.queryForObject("select reserved_quantity from position where account_id=?", Long.class, user.account)).isZero();
+        assertThat(jdbc.queryForObject("select realized_pnl from position where account_id=?", BigDecimal.class, user.account)).isEqualByComparingTo("-2.0000");
+        assertThat(jdbc.queryForObject("select amount from ledger_entry where account_id=? and entry_type='TRADE_CREDIT'", BigDecimal.class, user.account)).isEqualByComparingTo("198.0000");
+    }
+
+    @Test
+    void limitBuyExecutesWhenAskSatisfiesLimitAndRemainsPendingOtherwise() {
+        Account yes = account();
+        UUID yesOrder = place(yes, "BUY", "LIMIT", 2, "102");
+        assertThat(execution.executePending(yesOrder)).isTrue();
+        Account no = account();
+        UUID noOrder = place(no, "BUY", "LIMIT", 2, "100");
+        assertThat(execution.executePending(noOrder)).isFalse();
+        assertPending(noOrder);
+    }
+
+    @Test
+    void limitSellExecutesWhenBidSatisfiesLimitAndRemainsPendingOtherwise() {
+        Account yes = account(); seedPosition(yes.account, 3, 0, "95");
+        UUID yesOrder = place(yes, "SELL", "LIMIT", 1, "98");
+        assertThat(execution.executePending(yesOrder)).isTrue();
+        Account no = account(); seedPosition(no.account, 3, 0, "95");
+        UUID noOrder = place(no, "SELL", "LIMIT", 1, "100");
+        assertThat(execution.executePending(noOrder)).isFalse();
+        assertPending(noOrder);
+    }
+
+    @Test
+    void staleAndMissingQuotesPreventExecution() {
+        Account stale = account(); UUID staleOrder = place(stale, "BUY", "LIMIT", 1, "110");
+        putQuote("100", "101", "99", Instant.now().minusSeconds(601), "OPEN");
+        assertThat(execution.executePending(staleOrder)).isFalse();
+        assertPending(staleOrder);
+        putQuote("100", "101", "99", Instant.now(), "OPEN");
+        Account missing = account(); UUID missingOrder = place(missing, "BUY", "LIMIT", 1, "110");
+        jdbc.update("delete from market_quote where instrument_id=?", instrumentId);
+        assertThat(execution.executePending(missingOrder)).isFalse();
+        assertPending(missingOrder);
+    }
+
+    @Test
+    void cancelledAndAlreadyFilledOrdersAreNeverExecutedTwice() {
+        Account user = account(); UUID cancelled = place(user, "BUY", "LIMIT", 1, "110");
+        jdbc.update("update trading_order set status='CANCELLED' where id=?", cancelled);
+        assertThat(execution.executePending(cancelled)).isFalse();
+        UUID filled = place(user, "BUY", "LIMIT", 1, "110");
+        assertThat(execution.executePending(filled)).isTrue();
+        assertThat(execution.executePending(filled)).isFalse();
+        assertThat(jdbc.queryForObject("select count(*) from execution where order_id=?", Integer.class, filled)).isEqualTo(1);
+    }
+
+    @Test
+    void inactiveAccountDoesNotExecuteOrSettle() {
+        Account user = account(); UUID order = place(user, "BUY", "LIMIT", 1, "110");
+        jdbc.update("update trading_account set status='RESTRICTED' where id=?", user.account);
+        assertThat(execution.executePending(order)).isFalse();
+        assertPending(order);
+        assertBalance(user.account, "99890.0000", "110.0000");
+    }
+
+    @Test
+    void instrumentThatBecomesNonTradableDoesNotExecute() {
+        Account user = account(); UUID order = place(user, "BUY", "LIMIT", 1, "110");
+        jdbc.update("update instrument set tradable=false where id=?", instrumentId);
+        assertThat(execution.executePending(order)).isFalse();
+        assertPending(order);
+        jdbc.update("update instrument set tradable=true where id=?", instrumentId);
+    }
+
+    @Test
+    void sellFillReleasesTheEntireReservedQuantity() {
+        Account user = account(); seedPosition(user.account, 6, 0, "80");
+        UUID order = place(user, "SELL", "LIMIT", 4, "90");
+        assertThat(jdbc.queryForObject("select reserved_quantity from position where account_id=?", Long.class, user.account)).isEqualTo(4L);
+        assertThat(execution.executePending(order)).isTrue();
+        assertThat(jdbc.queryForObject("select quantity from position where account_id=?", Long.class, user.account)).isEqualTo(2L);
+        assertThat(jdbc.queryForObject("select reserved_quantity from position where account_id=?", Long.class, user.account)).isZero();
+    }
+
+    @Test
+    void insufficientSellReservationLeavesOrderAndPositionUnchanged() {
+        Account user = account(); seedPosition(user.account, 4, 0, "100");
+        UUID order = place(user, "SELL", "LIMIT", 2, "90");
+        jdbc.update("update position set reserved_quantity=0 where account_id=?", user.account);
+        assertThat(execution.executePending(order)).isFalse();
+        assertPending(order);
+        assertThat(jdbc.queryForObject("select quantity from position where account_id=?", Long.class, user.account)).isEqualTo(4L);
+    }
+
+    @Test
+    void quoteMustRemainOpenForExecution() {
+        Account user = account(); UUID order = place(user, "BUY", "MARKET", 1, null);
+        putQuote("100", "101", "99", Instant.now(), "CLOSED");
+        assertThat(execution.executePending(order)).isFalse();
+        assertPending(order);
+    }
+
+    @Test
+    void buyPositionAverageCostUsesExistingAndNewQuantities() {
+        Account user = account(); seedPosition(user.account, 2, 0, "90");
+        UUID order = place(user, "BUY", "LIMIT", 2, "110");
+        assertThat(execution.executePending(order)).isTrue();
+        assertThat(jdbc.queryForObject("select quantity from position where account_id=?", Long.class, user.account)).isEqualTo(4L);
+        assertThat(jdbc.queryForObject("select average_price from position where account_id=?", BigDecimal.class, user.account)).isEqualByComparingTo("95.500000");
+    }
+
+    @Test
+    void fillEventAndExecutionRetainQuoteReferenceAndCompleteQuantities() {
+        Account user = account(); UUID order = place(user, "BUY", "LIMIT", 3, "110");
+        assertThat(execution.executePending(order)).isTrue();
+        assertEvent(order);
+        assertThat(jdbc.queryForObject("select remaining_quantity from trading_order where id=?", Long.class, order)).isZero();
+        assertThat(jdbc.queryForObject("select quantity from execution where order_id=?", Long.class, order)).isEqualTo(3L);
+        assertThat(jdbc.queryForObject("select market_price from execution where order_id=?", BigDecimal.class, order)).isEqualByComparingTo("100");
+    }
+
+    @Test
+    void buyReservationIsConsumedAndUnusedLimitReservationReleased() {
+        Account user = account(); UUID order = place(user, "BUY", "LIMIT", 2, "120");
+        assertBalance(user.account, "99760.0000", "240.0000");
+        assertThat(execution.executePending(order)).isTrue();
+        assertBalance(user.account, "99798.0000", "0.0000");
+    }
+
+    @Test
+    void marketBuyPriceJumpWithoutAvailableTopUpLeavesOrderPending() {
+        Account user = account(); UUID order = place(user, "BUY", "MARKET", 2, null);
+        putQuote("100", "60000", "99", Instant.now(), "OPEN");
+        assertThat(execution.executePending(order)).isFalse();
+        assertPending(order);
+        assertBalance(user.account, "99800.0000", "200.0000");
+        assertThat(jdbc.queryForObject("select count(*) from execution where order_id=?", Integer.class, order)).isZero();
+    }
+
+    @Test
+    void rollbackOnLedgerFailureRevertsExecutionBalancesPositionAndOrder() {
+        Account user = account(); UUID order = place(user, "BUY", "LIMIT", 2, "110");
+        doThrow(new IllegalStateException("controlled ledger failure")).when(ledger).saveAndFlush(any());
+        assertThatThrownBy(() -> execution.executePending(order)).hasMessageContaining("controlled ledger failure");
+        assertPending(order);
+        assertBalance(user.account, "99780.0000", "220.0000");
+        assertThat(jdbc.queryForObject("select count(*) from execution where order_id=?", Integer.class, order)).isZero();
+        assertThat(jdbc.queryForObject("select count(*) from position where account_id=?", Integer.class, user.account)).isZero();
+    }
+
+    @Test
+    void concurrentExecutionAttemptsSettleOnlyOnce() throws Exception {
+        Account user = account(); UUID order = place(user, "BUY", "LIMIT", 2, "110");
+        var pool = Executors.newFixedThreadPool(2);
+        CountDownLatch start = new CountDownLatch(1);
+        try {
+            var a = pool.submit(() -> { start.await(); return execution.executePending(order); });
+            var b = pool.submit(() -> { start.await(); return execution.executePending(order); });
+            start.countDown();
+            assertThat((a.get(10, TimeUnit.SECONDS) ? 1 : 0) + (b.get(10, TimeUnit.SECONDS) ? 1 : 0)).isEqualTo(1);
+        } finally { pool.shutdownNow(); }
+        assertThat(jdbc.queryForObject("select count(*) from execution where order_id=?", Integer.class, order)).isEqualTo(1);
+        assertBalance(user.account, "99798.0000", "0.0000");
+        assertThat(jdbc.queryForObject("select quantity from position where account_id=?", Long.class, user.account)).isEqualTo(2L);
+    }
+
+    private Account account() {
+        RegistrationResponse result = registration.register(new RegistrationRequest(
+                "exec-" + UUID.randomUUID() + "@example.invalid", "Execution-Test-Password-93!", "Execution Test"));
+        return new Account(result.accountId());
+    }
+    private UUID place(Account user, String side, String type, long quantity, String limit) {
+        var response = placement.placeOrder(jdbc.queryForObject("select email from app_user where id=(select user_id from trading_account where id=?)", String.class, user.account),
+                new OrderPlacementRequest("NSE", "TCS", side, type, "DELIVERY", quantity,
+                        limit == null ? null : new BigDecimal(limit)), null);
+        return response.orderId();
+    }
+    private void putQuote(String last, String ask, String bid, Instant updated, String status) {
+        jdbc.update("delete from market_quote where instrument_id=?", instrumentId);
+        Instant now = Instant.now();
+        jdbc.update("insert into market_quote (id,instrument_id,last_price,bid_price,ask_price,market_at,provider_updated_at,received_at,market_status,data_status) values (?,?,?,?,?,?,?,?,?,'LIVE')",
+                UUID.randomUUID(), instrumentId, new BigDecimal(last), new BigDecimal(bid), new BigDecimal(ask), Timestamp.from(updated), Timestamp.from(updated), Timestamp.from(now), status);
+    }
+    private void seedPosition(UUID account, long quantity, long reserved, String average) {
+        jdbc.update("insert into position (id,account_id,instrument_id,trading_mode,quantity,reserved_quantity,average_price,realized_pnl,updated_at,version) values (?,?,?,'DELIVERY',?,?,?,?,?,0)",
+                UUID.randomUUID(), account, instrumentId, quantity, reserved, new BigDecimal(average), BigDecimal.ZERO, Timestamp.from(Instant.now()));
+    }
+    private void assertBalance(UUID account, String available, String reserved) {
+        assertThat(jdbc.queryForObject("select available_balance from trading_account where id=?", BigDecimal.class, account)).isEqualByComparingTo(available);
+        assertThat(jdbc.queryForObject("select reserved_balance from trading_account where id=?", BigDecimal.class, account)).isEqualByComparingTo(reserved);
+    }
+    private void assertPending(UUID order) {
+        assertThat(jdbc.queryForObject("select status from trading_order where id=?", String.class, order)).isEqualTo("PENDING");
+        assertThat(jdbc.queryForObject("select count(*) from execution where order_id=?", Integer.class, order)).isZero();
+    }
+    private void assertEvent(UUID order) {
+        assertThat(jdbc.queryForObject("select previous_state from order_event where order_id=? order by occurred_at desc fetch first 1 row only", String.class, order)).isEqualTo("PENDING");
+        assertThat(jdbc.queryForObject("select new_state from order_event where order_id=? order by occurred_at desc fetch first 1 row only", String.class, order)).isEqualTo("FILLED");
+        assertThat(jdbc.queryForObject("select event_type from order_event where order_id=? order by occurred_at desc fetch first 1 row only", String.class, order)).isEqualTo("ORDER_FILLED");
+    }
+    private record Account(UUID account) {}
+}

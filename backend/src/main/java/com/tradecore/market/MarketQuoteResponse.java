@@ -19,12 +19,12 @@ public record MarketQuoteResponse(
         String dataStatus,
         Long freshnessAgeSeconds) {
 
-    static MarketQuoteResponse unavailable(Instrument instrument) {
+    public static MarketQuoteResponse unavailable(Instrument instrument) {
         return new MarketQuoteResponse(instrument.getSymbol(), instrument.getExchange(),
                 null, null, null, null, null, null, null, null, null, "UNAVAILABLE", null);
     }
 
-    static MarketQuoteResponse from(MarketQuote quote, Instant now) {
+    public static MarketQuoteResponse from(MarketQuote quote, Instant now) {
         Instrument instrument = quote.getInstrument();
         Instant providerUpdatedAt = quote.getProviderUpdatedAt();
         String status = freshnessStatus(quote, providerUpdatedAt, now);

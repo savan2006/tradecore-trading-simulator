@@ -32,4 +32,12 @@ public class MarketHoursPolicy {
         return !localTime.isBefore(properties.getRegularSessionOpen())
                 && localTime.isBefore(properties.getRegularSessionClose());
     }
+
+    /** True on weekdays at or after the configured regular-session close. */
+    public boolean isSessionEnded(Instant instant) {
+        ZonedDateTime marketTime = instant.atZone(marketZone);
+        DayOfWeek day = marketTime.getDayOfWeek();
+        return day != DayOfWeek.SATURDAY && day != DayOfWeek.SUNDAY
+                && !marketTime.toLocalTime().isBefore(properties.getRegularSessionClose());
+    }
 }

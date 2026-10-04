@@ -18,4 +18,21 @@ public class IdempotencyRecord {
     @Column(name = "created_at", nullable = false) private Instant createdAt;
     @Column(name = "expires_at") private Instant expiresAt;
     protected IdempotencyRecord() {}
+
+    public IdempotencyRecord(TradingAccount account, String idempotencyKey, String requestFingerprint, Instant now) {
+        this.account = account;
+        this.idempotencyKey = idempotencyKey;
+        this.requestFingerprint = requestFingerprint;
+        this.state = "IN_PROGRESS";
+        this.createdAt = now;
+    }
+
+    public String getRequestFingerprint() { return requestFingerprint; }
+    public String getState() { return state; }
+    public TradingOrder getOriginalOrder() { return originalOrder; }
+
+    public void complete(TradingOrder order) {
+        this.originalOrder = order;
+        this.state = "COMPLETED";
+    }
 }

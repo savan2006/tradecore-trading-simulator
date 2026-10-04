@@ -25,4 +25,30 @@ public class Execution {
     @Column(name = "reference_metadata", columnDefinition = "text") private String referenceMetadata;
     @Column(nullable = false, precision = 19, scale = 4) private BigDecimal fee;
     protected Execution() {}
+
+    public Execution(TradingAccount account, TradingOrder order, Instrument instrument, String side,
+            String tradingMode, long quantity, BigDecimal price, Instant executedAt,
+            BigDecimal marketPrice, Instant marketAt) {
+        this.account = account;
+        this.order = order;
+        this.instrument = instrument;
+        this.side = side;
+        this.tradingMode = tradingMode;
+        this.quantity = quantity;
+        this.price = price;
+        this.executedAt = executedAt;
+        this.marketPrice = marketPrice;
+        this.marketAt = marketAt;
+        this.fee = BigDecimal.ZERO.setScale(4);
+    }
+
+    public UUID getId() { return id; }
+    public TradingAccount getAccount() { return account; }
+    public TradingOrder getOrder() { return order; }
+    public Instrument getInstrument() { return instrument; }
+    public String getSide() { return side; }
+    public String getTradingMode() { return tradingMode; }
+    public long getQuantity() { return quantity; }
+    public BigDecimal getPrice() { return price; }
+    public Instant getExecutedAt() { return executedAt; }
 }

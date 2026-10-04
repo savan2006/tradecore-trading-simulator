@@ -13,4 +13,7 @@ public interface MarketCandleRepository extends JpaRepository<MarketCandle, UUID
 
     List<MarketCandle> findAllByInstrument_IdAndResolutionAndBucketStartGreaterThanEqualAndBucketStartLessThanOrderByBucketStartAsc(
             UUID instrumentId, String resolution, Instant fromInclusive, Instant toExclusive, Pageable pageable);
+
+    List<MarketCandle> findAllByInstrument_IdAndResolutionOrderByBucketStartDesc(
+            UUID instrumentId, String resolution, Pageable pageable);
 }

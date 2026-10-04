@@ -15,4 +15,22 @@ public class OrderEvent {
     @Column(length = 500) private String reason;
     @Column(name = "occurred_at", nullable = false) private Instant occurredAt;
     protected OrderEvent() {}
+
+    public OrderEvent(TradingOrder order, String previousState, String newState,
+            String eventType, String reason, Instant occurredAt) {
+        this.order = order;
+        this.previousState = previousState;
+        this.newState = newState;
+        this.eventType = eventType;
+        this.reason = reason;
+        this.occurredAt = occurredAt;
+    }
+
+    public UUID getId() { return id; }
+    public TradingOrder getOrder() { return order; }
+    public String getPreviousState() { return previousState; }
+    public String getNewState() { return newState; }
+    public String getEventType() { return eventType; }
+    public String getReason() { return reason; }
+    public Instant getOccurredAt() { return occurredAt; }
 }

@@ -14,6 +14,9 @@ public interface MarketQuoteRepository extends JpaRepository<MarketQuote, UUID> 
     Optional<MarketQuote> findByInstrument_Id(UUID instrumentId);
 
     @EntityGraph(attributePaths = "instrument")
+    List<MarketQuote> findAllByInstrument_IdIn(Collection<UUID> instrumentIds);
+
+    @EntityGraph(attributePaths = "instrument")
     List<MarketQuote> findAllByInstrument_ExchangeAndInstrument_SymbolIn(
             String exchange, Collection<String> symbols);
 }

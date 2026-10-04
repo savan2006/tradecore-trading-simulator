@@ -17,7 +17,7 @@ public record MarketCandleResponse(
 
     private static final ZoneId EXCHANGE_ZONE = ZoneId.of("Asia/Kolkata");
 
-    static MarketCandleResponse from(MarketCandle candle) {
+    public static MarketCandleResponse from(MarketCandle candle) {
         return new MarketCandleResponse(
                 candle.getBucketStart().atZone(EXCHANGE_ZONE).toLocalDate(),
                 candle.getOpenPrice(),

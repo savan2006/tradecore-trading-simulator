@@ -14,4 +14,12 @@ public class Watchlist {
     @Column(name = "created_at", nullable = false) private Instant createdAt;
     @Column(name = "updated_at", nullable = false) private Instant updatedAt;
     protected Watchlist() {}
+
+    public Watchlist(User user, String name, Instant now) { this.user = user; this.name = name; this.createdAt = now; this.updatedAt = now; }
+    public UUID getId() { return id; }
+    public User getUser() { return user; }
+    public String getName() { return name; }
+    public Instant getCreatedAt() { return createdAt; }
+    public Instant getUpdatedAt() { return updatedAt; }
+    public void rename(String name, Instant now) { this.name = name; this.updatedAt = now; }
 }

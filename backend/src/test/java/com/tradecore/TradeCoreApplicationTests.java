@@ -68,7 +68,7 @@ class TradeCoreApplicationTests {
 
     @Test
     void allCoreTablesHaveValidatedEntityMappings() {
-        assertThat(entityManagerFactory.getMetamodel().getEntities()).hasSize(17);
+        assertThat(entityManagerFactory.getMetamodel().getEntities()).hasSize(19);
     }
 
     @Test
@@ -236,7 +236,20 @@ class TradeCoreApplicationTests {
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM instrument WHERE exchange = 'NSE' AND instrument_type <> 'EQUITY'", Integer.class))
                 .isZero();
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("4");
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM learning_profile p JOIN instrument i ON i.id = p.instrument_id WHERE i.exchange = 'NSE'", Integer.class))
+                .isEqualTo(80);
+        var profiledSymbols = jdbcTemplate.queryForList(
+                "SELECT i.symbol FROM learning_profile p JOIN instrument i ON i.id = p.instrument_id WHERE i.exchange = 'NSE'",
+                String.class);
+        assertThat(profiledSymbols).containsExactlyInAnyOrderElementsOf(expectedSymbols);
+        assertThat(jdbcTemplate.queryForList(
+                "SELECT i.symbol FROM instrument i LEFT JOIN learning_profile p ON p.instrument_id = i.id " +
+                        "WHERE i.exchange = 'NSE' AND i.tradable = TRUE AND p.id IS NULL", String.class)).isEmpty();
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM (SELECT instrument_id FROM learning_profile GROUP BY instrument_id HAVING COUNT(*) > 1) duplicates",
+                Integer.class)).isZero();
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("8");
     }
 
     private void insertUser(UUID id, String email) {
