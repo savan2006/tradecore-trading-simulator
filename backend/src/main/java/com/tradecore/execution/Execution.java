@@ -1,5 +1,6 @@
 package com.tradecore.execution;
 
+import com.tradecore.account.TradingAccount;
 import com.tradecore.market.Instrument;
 import com.tradecore.order.TradingOrder;
 import jakarta.persistence.*;
@@ -11,6 +12,7 @@ import java.util.UUID;
 @Table(name = "execution", indexes = @Index(name = "ix_execution_order_time", columnList = "order_id,executed_at"))
 public class Execution {
     @Id @GeneratedValue(strategy = GenerationType.UUID) private UUID id;
+    @ManyToOne(fetch = FetchType.LAZY, optional = false) @JoinColumn(name = "account_id", nullable = false) private TradingAccount account;
     @ManyToOne(fetch = FetchType.LAZY, optional = false) @JoinColumn(name = "order_id", nullable = false) private TradingOrder order;
     @ManyToOne(fetch = FetchType.LAZY, optional = false) @JoinColumn(name = "instrument_id", nullable = false) private Instrument instrument;
     @Column(nullable = false, length = 8) private String side;

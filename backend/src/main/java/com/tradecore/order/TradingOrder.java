@@ -8,7 +8,12 @@ import java.time.Instant;
 import java.util.UUID;
 
 @Entity
-@Table(name = "trading_order", indexes = @Index(name = "ix_order_account_created", columnList = "account_id,created_at"))
+@Table(name = "trading_order",
+        indexes = @Index(name = "ix_order_account_created", columnList = "account_id,created_at"),
+        uniqueConstraints = {
+                @UniqueConstraint(name = "uq_trading_order_account_id", columnNames = {"account_id", "id"}),
+                @UniqueConstraint(name = "uq_trading_order_execution_key", columnNames = {"id", "instrument_id", "side", "trading_mode"})
+        })
 public class TradingOrder {
     @Id @GeneratedValue(strategy = GenerationType.UUID) private UUID id;
     @ManyToOne(fetch = FetchType.LAZY, optional = false) @JoinColumn(name = "account_id", nullable = false) private TradingAccount account;

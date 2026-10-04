@@ -10,7 +10,7 @@ import java.util.UUID;
 @Table(name = "trading_account")
 public class TradingAccount {
     @Id @GeneratedValue(strategy = GenerationType.UUID) private UUID id;
-    @ManyToOne(fetch = FetchType.LAZY, optional = false) @JoinColumn(name = "user_id", nullable = false, unique = true) private User user;
+    @OneToOne(fetch = FetchType.LAZY, optional = false) @JoinColumn(name = "user_id", nullable = false, unique = true) private User user;
     @Column(nullable = false, length = 20) private String status;
     @Column(nullable = false, length = 3) private String currency;
     @Column(name = "available_balance", nullable = false, precision = 19, scale = 4) private BigDecimal availableBalance;

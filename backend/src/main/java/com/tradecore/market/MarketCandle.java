@@ -6,7 +6,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 @Entity
-@Table(name = "market_candle", uniqueConstraints = @UniqueConstraint(name = "uq_market_candle_bucket", columnNames = {"instrument_id", "resolution", "bucket_start"}), indexes = @Index(name = "ix_market_candle_history", columnList = "instrument_id,resolution,bucket_start"))
+@Table(name = "market_candle", uniqueConstraints = @UniqueConstraint(name = "uq_market_candle_bucket", columnNames = {"instrument_id", "resolution", "bucket_start"}))
 public class MarketCandle {
     @Id @GeneratedValue(strategy = GenerationType.UUID) private UUID id;
     @ManyToOne(fetch = FetchType.LAZY, optional = false) @JoinColumn(name = "instrument_id", nullable = false) private Instrument instrument;
