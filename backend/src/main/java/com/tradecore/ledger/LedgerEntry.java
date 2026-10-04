@@ -21,4 +21,17 @@ public class LedgerEntry {
     @Column(nullable = false, length = 500) private String description;
     @Column(name = "occurred_at", nullable = false) private Instant occurredAt;
     protected LedgerEntry() {}
+
+    public LedgerEntry(TradingAccount account, BigDecimal amount, String currency, String description, Instant occurredAt) {
+        this.account = account;
+        this.entryType = "INITIAL_DEPOSIT";
+        this.amount = amount;
+        this.currency = currency;
+        this.description = description;
+        this.occurredAt = occurredAt;
+    }
+
+    public String getEntryType() { return entryType; }
+    public BigDecimal getAmount() { return amount; }
+    public String getCurrency() { return currency; }
 }
