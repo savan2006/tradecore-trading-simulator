@@ -1,19 +1,30 @@
 package com.tradecore.market.nse;
 
 import java.net.URI;
+import java.time.LocalDate;
 import java.time.Instant;
+import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.TimeoutException;
 
+import com.tradecore.market.MarketCandleSnapshot;
 import com.tradecore.market.MarketDataConnectivity;
 import com.tradecore.market.MarketDataConnectivity.EndpointStatus;
+import com.tradecore.market.MarketDataFreshness;
+import com.tradecore.market.MarketDataProviderException;
 import com.tradecore.market.MarketDataProvider;
+import com.tradecore.market.MarketInstrument;
+import com.tradecore.market.MarketQuoteSnapshot;
+import com.tradecore.market.MarketSessionStatus;
 import io.modelcontextprotocol.client.McpClient;
 import io.modelcontextprotocol.client.McpSyncClient;
 import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTransport;
 import io.modelcontextprotocol.spec.McpSchema.InitializeResult;
 import io.modelcontextprotocol.spec.McpSchema.ListToolsResult;
+import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
+import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpTransportException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,6 +48,84 @@ public class NseMcpMarketDataProvider implements MarketDataProvider {
         endpoints.put("bhavcopy", checkEndpoint(properties.bhavcopyEndpoint()));
         boolean connected = endpoints.values().stream().allMatch(EndpointStatus::connected);
         return new MarketDataConnectivity(connected, Instant.now(), endpoints);
+    }
+
+    @Override
+    public List<MarketInstrument> searchInstruments(String query) {
+        return NseMcpResponseMapper.mapSymbolLookup(call(
+                properties.bhavcopyEndpoint(), "nse_lookup_symbol", Map.of("query", query)));
+    }
+
+    @Override
+    public MarketQuoteSnapshot getQuote(String symbol) {
+        return NseMcpResponseMapper.mapQuote(call(
+                properties.marketLiveEndpoint(), "cm_get_stock_quote", Map.of("symbol", symbol)));
+    }
+
+    @Override
+    public List<MarketCandleSnapshot> getHistoricalCandles(String symbol, int months, LocalDate endDate) {
+        if (months < 1 || months > 3) {
+            throw new IllegalArgumentException("NSE Bhavcopy history supports chunks of 1 to 3 months");
+        }
+        return NseMcpResponseMapper.mapHistory(call(properties.bhavcopyEndpoint(), "get_stock_history", Map.of(
+                "symbol", symbol,
+                "months", months,
+                "endDate", endDate == null ? "today" : endDate.toString())));
+    }
+
+    @Override
+    public Optional<MarketDataFreshness> getDataFreshness() {
+        return Optional.of(NseMcpResponseMapper.mapFreshness(call(
+                properties.marketLiveEndpoint(), "cm_get_allstocks_status", Map.of())));
+    }
+
+    @Override
+    public Optional<MarketSessionStatus> getMarketSessionStatus() {
+        // Neither live tool catalog exposes market/session state; cached-data presence is not session state.
+        return Optional.empty();
+    }
+
+    private CallToolResult call(URI endpoint, String toolName, Map<String, Object> arguments) {
+        McpSyncClient client = null;
+        try {
+            client = createClient(endpoint);
+            client.initialize();
+            return client.callTool(new CallToolRequest(toolName, arguments));
+        } catch (RuntimeException exception) {
+            throw providerFailure(exception);
+        } finally {
+            close(client);
+        }
+    }
+
+    private McpSyncClient createClient(URI endpoint) {
+        URI origin = URI.create(endpoint.getScheme() + "://" + endpoint.getRawAuthority());
+        var transport = HttpClientStreamableHttpTransport.builder(origin.toString())
+                .endpoint(endpoint.getRawPath())
+                .connectTimeout(properties.connectTimeout())
+                .build();
+        return McpClient.sync(transport).requestTimeout(properties.requestTimeout()).build();
+    }
+
+    private static MarketDataProviderException providerFailure(RuntimeException failure) {
+        if (failure instanceof MarketDataProviderException providerFailure) {
+            return providerFailure;
+        }
+        String category = failureCategory(failure);
+        var reason = "TIMEOUT".equals(category)
+                ? MarketDataProviderException.Category.TIMEOUT
+                : MarketDataProviderException.Category.PROVIDER_ERROR;
+        return new MarketDataProviderException(reason, "NSE MCP request failed (" + category + ")", failure);
+    }
+
+    private static void close(McpSyncClient client) {
+        if (client != null) {
+            try {
+                client.closeGracefully();
+            } catch (RuntimeException exception) {
+                log.debug("NSE MCP client close failed ({})", exception.getClass().getSimpleName());
+            }
+        }
     }
 
     private EndpointStatus checkEndpoint(URI endpoint) {

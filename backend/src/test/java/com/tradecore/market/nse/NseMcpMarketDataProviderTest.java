@@ -12,9 +12,11 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import com.tradecore.market.MarketDataProviderException;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class NseMcpMarketDataProviderTest {
 
@@ -46,6 +48,37 @@ class NseMcpMarketDataProviderTest {
         }
     }
 
+    @Test
+    void mapsMarketDataRequestTimeoutToExplicitProviderFailure() throws Exception {
+        try (var server = new LocalMcpServer(true)) {
+            var provider = provider(server, Duration.ofMillis(150));
+
+            assertThatThrownBy(() -> provider.getQuote("TCS"))
+                    .isInstanceOfSatisfying(MarketDataProviderException.class,
+                            error -> assertThat(error.category()).isEqualTo(MarketDataProviderException.Category.TIMEOUT));
+        }
+    }
+
+    @Test
+    void routesQuoteRequestThroughProviderBoundaryAndReturnsNormalizedValues() throws Exception {
+        try (var server = new LocalMcpServer(false)) {
+            var quote = provider(server, Duration.ofSeconds(1)).getQuote("TCS");
+
+            assertThat(server.lastToolName()).isEqualTo("cm_get_stock_quote");
+            assertThat(server.lastToolArguments().path("symbol").asText()).isEqualTo("TCS");
+            assertThat(quote.symbol()).isEqualTo("TCS");
+            assertThat(quote.lastPrice()).isEqualByComparingTo("2075.0");
+            assertThat(quote.dataSource()).isEqualTo("NSE_MCP_CM_MARKET");
+        }
+    }
+
+    @Test
+    void doesNotInferMarketSessionStateFromDataAvailability() throws Exception {
+        try (var server = new LocalMcpServer(false)) {
+            assertThat(provider(server, Duration.ofSeconds(1)).getMarketSessionStatus()).isEmpty();
+        }
+    }
+
     private NseMcpMarketDataProvider provider(LocalMcpServer server, Duration requestTimeout) {
         String base = "http://127.0.0.1:" + server.port();
         return new NseMcpMarketDataProvider(new NseMcpProperties(
@@ -62,6 +95,8 @@ class NseMcpMarketDataProviderTest {
         private final boolean delayInitialize;
         private volatile int initializeRequests;
         private volatile int toolListingRequests;
+        private volatile String lastToolName;
+        private volatile JsonNode lastToolArguments;
 
         private LocalMcpServer(boolean delayInitialize) throws IOException {
             this.delayInitialize = delayInitialize;
@@ -82,6 +117,12 @@ class NseMcpMarketDataProviderTest {
         private int toolListingRequests() {
             return toolListingRequests;
         }
+
+        private String lastToolName() {
+            return lastToolName;
+        }
+
+        private JsonNode lastToolArguments() { return lastToolArguments; }
 
         private void handle(HttpExchange exchange) throws IOException {
             if ("GET".equals(exchange.getRequestMethod())) {
@@ -129,6 +170,17 @@ class NseMcpMarketDataProviderTest {
                                 "inputSchema", Map.of("type", "object", "properties", Map.of())))
                         .toList();
                 sendResult(exchange, request.path("id"), Map.of("tools", tools), false);
+                return;
+            }
+
+            if ("tools/call".equals(method)) {
+                JsonNode params = request.path("params");
+                lastToolName = params.path("name").asText();
+                lastToolArguments = params.path("arguments");
+                sendResult(exchange, request.path("id"), Map.of(
+                        "content", java.util.List.of(Map.of("type", "text", "text",
+                                "{\"updatedAt\":\"2026-10-04T03:32:27.734817172Z\",\"stock\":{\"symbol\":\"TCS\",\"openPrice\":2052.6,\"highPrice\":2093.9,\"lowPrice\":2045.1,\"lastTradedPrice\":2075.0,\"volume\":3428501,\"latestTimestamp\":\"2026-10-01 16:00:28\"}}")),
+                        "isError", false), false);
                 return;
             }
 
