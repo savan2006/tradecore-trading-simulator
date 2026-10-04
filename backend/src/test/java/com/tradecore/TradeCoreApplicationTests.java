@@ -11,10 +11,13 @@ import jakarta.persistence.EntityManagerFactory;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.http.HttpStatus;
+import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -50,6 +53,9 @@ class TradeCoreApplicationTests {
 
     @Autowired
     private InstrumentRepository instrumentRepository;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     @Test
     void contextLoads() {
@@ -237,5 +243,29 @@ class TradeCoreApplicationTests {
         assertThat(anonymousStatus.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
         assertThat(authenticatedStatus.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(authenticatedStatus.getBody()).contains("TradeCore backend is running");
+    }
+
+    @Test
+    @EnabledIfSystemProperty(named = "tradecore.nse-mcp.live-test", matches = "true")
+    void nseMcpLiveConnectivitySmokeTest() throws Exception {
+        var providerHealth = restTemplate.withBasicAuth("test-user", "test-password")
+                .getForEntity("/actuator/health", String.class);
+
+        JsonNode rootHealth = objectMapper.readTree(providerHealth.getBody());
+        JsonNode endpoints = findProviderEndpoints(rootHealth.path("components"));
+        assertThat(endpoints.path("market-live").path("connected").asBoolean()).isTrue();
+        assertThat(endpoints.path("bhavcopy").path("connected").asBoolean()).isTrue();
+    }
+
+    private JsonNode findProviderEndpoints(JsonNode healthComponents) {
+        var components = healthComponents.elements();
+        while (components.hasNext()) {
+            JsonNode component = components.next();
+            JsonNode endpoints = component.path("details").path("endpoints");
+            if (endpoints.has("market-live") || endpoints.has("bhavcopy")) {
+                return endpoints;
+            }
+        }
+        return objectMapper.createObjectNode();
     }
 }

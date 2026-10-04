@@ -49,3 +49,9 @@ tradecore:
   security:
     user: ${TRADECORE_SECURITY_USER:tradecore-dev}
     password: ${TRADECORE_SECURITY_PASSWORD}
+  market-data:
+    nse-mcp:
+      market-live-endpoint: ${TRADECORE_NSE_MCP_MARKET_LIVE_ENDPOINT:https://mcp.nseindia.in/cmmkt/mcp}
+      bhavcopy-endpoint: ${TRADECORE_NSE_MCP_BHAVCOPY_ENDPOINT:https://mcp.nseindia.in/bhavcopy/cm/mcp}
+      connect-timeout: ${TRADECORE_NSE_MCP_CONNECT_TIMEOUT:PT5S}
+      request-timeout: ${TRADECORE_NSE_MCP_REQUEST_TIMEOUT:PT12S}

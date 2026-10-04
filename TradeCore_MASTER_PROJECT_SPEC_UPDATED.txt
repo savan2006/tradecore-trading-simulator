@@ -25,9 +25,9 @@ IMPORTANT:
 - Database: PostgreSQL.
 - Supporting cache/coordination: Redis.
 - Realtime communication: WebSocket.
-- Current market-data source: the Upstox API.
+- Current market-data source: NSE MCP.
 - Market-data integration MUST be provider-independent so that another provider can replace
-  Upstox later without changing the core trading system.
+  the current source later without changing the core trading system.
 
 
 ====================================================================
@@ -61,14 +61,14 @@ REAL WORLD INPUT
 
 INTERNAL SIMULATION
 -------------------
+- Simulated money, including the initial virtual capital and all account balances
+- Simulated orders; orders are internal learning actions and are never sent to an exchange
+- Simulated execution, including fills, partial fills, and execution prices selected by the simulator
+- Simulated portfolio/positions and valuation based on real market data
+- Simulated realized and unrealized P&L based on simulated executions and portfolio state
 - User accounts
 - Virtual trading accounts
-- ₹1,00,000 initial virtual capital per newly registered user
-- Orders
-- Executions
 - Holdings/positions
-- Portfolio valuation
-- Realized and unrealized P&L
 - Ledger
 - Risk rules
 - Notifications
@@ -167,11 +167,11 @@ look advanced. Add a technology only when it solves a real requirement.
 
 CURRENT PROVIDER
 ----------------
-Upstox API.
+NSE MCP.
 
 IMPORTANT PROVIDER RULE
 -----------------------
-The Upstox API is only the current external market-data source. It is NOT the source of
+NSE MCP is only the current external market-data source. It is NOT the source of
 truth for users' accounts, orders, positions, balances, ledger, portfolio or audit history.
 
 The application architecture MUST be:
@@ -197,14 +197,14 @@ LATER PROVIDER SWITCH
 The provider architecture must remain replaceable so another market-data provider can be introduced later.
 
 Changing:
-    Upstox API -> another provider
+    NSE MCP -> a future provider, if one is selected
 
 should affect the provider adapter/integration layer and related configuration/mapping,
 NOT the order engine, risk engine, position engine, ledger, portfolio service, or frontend
 business assumptions.
 
 IMPORTANT:
-Do not assume a particular Upstox API endpoint, payload field, protocol, entitlement, or update frequency.
+Do not assume a particular NSE MCP tool, payload field, protocol, entitlement, or update frequency.
 Inspect the actual available interface during implementation and map it into TradeCore's
 internal model. Never invent unsupported provider capabilities.
 
@@ -215,21 +215,82 @@ internal model. Never invent unsupported provider capabilities.
 
 INITIAL UNIVERSE
 ----------------
-Approximately 30–35 real Indian companies/instruments.
+The target is exactly 80 real Indian companies/instruments, curated for educational breadth
+across sectors, business models, volatility patterns, cyclicality, defensive businesses,
+growth businesses, financial companies, commodity businesses, consumer businesses,
+infrastructure, technology, healthcare, and other major market behaviours.
 
-Examples may include:
-- RELIANCE
-- TCS
-- INFY
-- HDFCBANK
-- ICICIBANK
-- SBIN
-- ITC
-- LT
-- BHARTIARTL
-- HINDUNILVR
+The supported educational universe is:
 
-The exact final list can be configured/seeded during implementation.
+Banks:
+HDFCBANK, ICICIBANK, SBIN, AXISBANK, KOTAKBANK, INDUSINDBK
+
+NBFC / Financial:
+BAJFINANCE, SHRIRAMFIN, MUTHOOTFIN, HDFCAMC, SBILIFE, BSE
+
+IT:
+TCS, INFY, HCLTECH, WIPRO, TECHM
+
+Automobile:
+MARUTI, M&M, EICHERMOT, BAJAJ-AUTO, TVSMOTOR
+
+FMCG / Consumer:
+HINDUNILVR, ITC, NESTLEIND, BRITANNIA, TATACONSUM, VBL, DMART
+
+Energy / Power:
+RELIANCE, ONGC, COALINDIA, NTPC, POWERGRID, TATAPOWER
+
+Telecom:
+BHARTIARTL, INDUSTOWER
+
+Healthcare / Pharma:
+SUNPHARMA, DRREDDY, CIPLA, DIVISLAB, APOLLOHOSP
+
+Capital Goods / Defence:
+LT, BEL, HAL, SIEMENS, ABB
+
+Metals / Mining:
+TATASTEEL, JSWSTEEL, HINDALCO, VEDL
+
+Cement / Construction Materials:
+ULTRACEMCO, SHREECEM, AMBUJACEM, DALBHARAT
+
+Chemicals / Paints:
+ASIANPAINT, PIDILITIND, SRF, DEEPAKNTR, PIIND
+
+Real Estate:
+DLF, GODREJPROP, PRESTIGE
+
+Consumer Durables:
+TITAN, HAVELLS, DIXON
+
+Consumer Services:
+TRENT, ETERNAL, INDHOTEL, INDIGO
+
+Logistics / Ports:
+ADANIPORTS, CONCOR
+
+Textiles / Apparel:
+KPRMILL, PAGEIND
+
+Financial Market Infrastructure:
+CAMS
+
+Media / Entertainment:
+SUNTV, PVRINOX
+
+Infrastructure / Rail:
+RVNL, IRCON
+
+Travel / Tourism / Rail Services:
+IRCTC
+
+This is an educationally curated universe, not an attempt to represent every listed company.
+It exposes learners to different sectors, business models, volatility patterns, cyclicality,
+defensive and growth businesses, financial and commodity businesses, consumer businesses,
+infrastructure, technology, healthcare, and other major market behaviours.
+
+COUNT CHECK: The supported universe contains exactly 80 unique companies.
 
 Do not build an unnecessary full-market ingestion platform.
 The architecture should allow adding instruments later without redesign.
@@ -250,7 +311,7 @@ to live updates.
 
 PREFERRED DATA FLOW
 -------------------
-Upstox API
+NSE MCP
     -> provider adapter
     -> validation/normalization
     -> internal market event
@@ -477,7 +538,7 @@ The target is fast propagation, not a fake fixed number.
 When a provider update arrives and is valid, distribute the internal update to subscribed
 clients with minimal processing overhead.
 
-The system should remain usable even if many users are watching the same 30–35 instruments.
+The system should remain usable even if many users are watching the same 80 instruments.
 
 
 ====================================================================
@@ -592,7 +653,7 @@ Should show meaningful current information such as:
 
 MARKET PAGE
 -----------
-Show the supported 30–35 instruments with:
+Show the supported 80 instruments with:
 - company name
 - symbol
 - current price
@@ -1655,7 +1716,7 @@ able to rebuild/reload required hot state.
 Recommended conceptual separation:
 
 A. PROVIDER ADAPTER
-   Talks to the current Upstox API and knows provider-specific formats.
+   Talks to the current NSE MCP source and knows provider-specific formats.
 
 B. NORMALIZER / VALIDATOR
    Converts provider data into TradeCore's internal format and rejects malformed values.
@@ -1672,7 +1733,7 @@ E. DISTRIBUTION
 F. EXECUTION INPUT
    Supplies a consistent latest-valid quote to the simulator.
 
-The order engine should depend on internal market interfaces/data, not directly on Upstox API.
+The order engine should depend on internal market interfaces/data, not directly on NSE MCP.
 
 
 ====================================================================
@@ -2120,7 +2181,7 @@ Spring Boot Application
 External Market Provider Adapter
         ^
         |
-    Upstox API
+    NSE MCP
 
 The internal modules should have clear responsibilities even though they are deployed as a
 single Spring Boot application.
@@ -2216,7 +2277,7 @@ GATE:
 
 PHASE 3 — MARKET DATA
 - provider adapter boundary
-- Upstox API integration
+- NSE MCP integration
 - normalization
 - freshness/status
 - Redis current state
@@ -2692,12 +2753,12 @@ financial history and consistency model.
 
 68.11 MARKET-DATA INTEGRATION SAFETY
 ------------------------------------
-The current market-data provider is Upstox API.
+The current market-data provider is NSE MCP.
 
 The agent MUST keep provider-specific logic inside the market-data integration boundary.
 
 The core order/risk/position/ledger/portfolio logic MUST consume TradeCore's internal normalized market
-model rather than directly depending on Upstox payload classes or provider-specific assumptions.
+model rather than directly depending on NSE MCP payload classes or provider-specific assumptions.
 
 The agent MUST:
 - inspect the actual provider interface available to the project
@@ -2939,9 +3000,9 @@ order submission, simulated execution with partial fills, positions, realized an
 P&L, an auditable financial ledger, notifications, WebSocket-based realtime updates, market
 data freshness handling, and administrative controls. The frontend is built with Next.js and
 the backend with Spring Boot, PostgreSQL is the transactional source of truth, Redis is used
-for fast current-state access and supporting coordination, and the current Upstox API market-data
-integration is isolated behind a replaceable provider boundary so another market-data provider
-can be introduced later without redesigning the trading core."
+for fast current-state access and supporting coordination, and the current NSE MCP market-data
+integration is isolated behind a replaceable provider boundary without coupling the trading core
+to provider-specific payloads."
 
 
 ====================================================================
@@ -2967,10 +3028,10 @@ REALTIME
 WebSocket
 
 CURRENT MARKET DATA SOURCE
-Upstox API
+NSE MCP
 
 FUTURE MARKET DATA PROVIDER POSSIBILITY
-Another provider may replace Upstox later
+The existing adapter boundary isolates provider-specific integration details
 
 PROVIDER IMPLEMENTATION RULE
 Provider-specific logic must remain isolated behind the adapter boundary
@@ -2979,7 +3040,7 @@ PROVIDER COUPLING
 Must be isolated/replaceable
 
 INITIAL MARKET UNIVERSE
-Approximately 30–35 real companies
+Exactly 80 educationally curated real companies
 
 MARKET DATA
 Real when provider is available
@@ -3074,7 +3135,7 @@ The project is only considered complete when:
 
 - A user can register and receives exactly ₹1,00,000 virtual capital.
 - A user can log in securely.
-- Market data can enter through the Upstox provider adapter.
+- Market data can enter through the NSE MCP provider adapter.
 - The implementation uses the existing TradeCore repository directly; ZIP regeneration is not part of the normal development workflow.
 - The frontend can display current market data through the backend.
 - Market values update through WebSocket without manual refresh.
