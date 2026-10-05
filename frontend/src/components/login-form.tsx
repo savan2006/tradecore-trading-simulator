@@ -2,6 +2,8 @@
 
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
+import type { ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 
 export function LoginForm() {
@@ -21,7 +23,10 @@ export function LoginForm() {
       setPassword("");
       router.replace("/");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Unable to sign in. Check your connection and try again.");
+      const status = (cause as ApiError)?.status;
+      setError(status === 401
+        ? "Email or password is incorrect."
+        : cause instanceof Error ? cause.message : "Unable to sign in. Check your connection and try again.");
     } finally {
       setSubmitting(false);
     }
@@ -39,6 +44,7 @@ export function LoginForm() {
         <button className="button-primary" type="submit" disabled={submitting}>{submitting ? "Checking…" : "Sign in"}</button>
       </form>
       <p className="fine-print">Your password is used to verify this sign-in and is not saved in browser storage.</p>
+      <p className="auth-switch">New to TradeCore? <Link href="/register">Create an account</Link></p>
     </section>
   );
 }

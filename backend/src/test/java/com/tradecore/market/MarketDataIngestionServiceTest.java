@@ -23,7 +23,10 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @SpringBootTest(properties = {
@@ -47,6 +50,9 @@ class MarketDataIngestionServiceTest {
     @MockitoSpyBean
     private MarketQuoteRepository quoteRepository;
 
+    @MockitoSpyBean
+    private MarketDataCache marketDataCache;
+
     @Autowired
     private MarketDataIngestionService ingestionService;
 
@@ -62,6 +68,7 @@ class MarketDataIngestionServiceTest {
         quoteRepository.deleteAll();
         reset(provider);
         reset(quoteRepository);
+        clearInvocations(marketDataCache);
     }
 
     @Test
@@ -93,6 +100,8 @@ class MarketDataIngestionServiceTest {
         assertThat(count("market_quote")).isEqualTo(2);
         assertThat(jdbcTemplate.queryForList("SELECT id FROM market_quote ORDER BY id", String.class))
                 .containsExactlyElementsOf(originalIds);
+        verify(marketDataCache, org.mockito.Mockito.atLeastOnce()).evictQuote("NSE", "TCS");
+        verify(marketDataCache, org.mockito.Mockito.atLeastOnce()).evictQuote("NSE", "TRENT");
     }
 
     @Test
@@ -205,6 +214,8 @@ class MarketDataIngestionServiceTest {
             assertThatThrownBy(() -> ingestionService.ingestCurrentQuotes(List.of("TCS", "TRENT")))
                     .isInstanceOf(RuntimeException.class);
             assertThat(count("market_quote")).isZero();
+            verify(marketDataCache, never()).evictQuote("NSE", "TCS");
+            verify(marketDataCache, never()).evictQuote("NSE", "TRENT");
         } finally {
             jdbcTemplate.execute("ALTER TABLE market_quote DROP CONSTRAINT ck_ingestion_rollback_test");
         }

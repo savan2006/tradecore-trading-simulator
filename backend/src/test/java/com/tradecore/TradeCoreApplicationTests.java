@@ -68,7 +68,7 @@ class TradeCoreApplicationTests {
 
     @Test
     void allCoreTablesHaveValidatedEntityMappings() {
-        assertThat(entityManagerFactory.getMetamodel().getEntities()).hasSize(19);
+        assertThat(entityManagerFactory.getMetamodel().getEntities()).hasSize(20);
     }
 
     @Test
@@ -249,7 +249,7 @@ class TradeCoreApplicationTests {
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM (SELECT instrument_id FROM learning_profile GROUP BY instrument_id HAVING COUNT(*) > 1) duplicates",
                 Integer.class)).isZero();
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("8");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("9");
     }
 
     private void insertUser(UUID id, String email) {

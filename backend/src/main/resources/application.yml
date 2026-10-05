@@ -46,6 +46,16 @@ management:
     defaults:
       enabled: true
 tradecore:
+  rate-limit:
+    register:
+      limit: ${TRADECORE_RATE_LIMIT_REGISTER_LIMIT:5}
+      window: ${TRADECORE_RATE_LIMIT_REGISTER_WINDOW:PT1H}
+    order:
+      limit: ${TRADECORE_RATE_LIMIT_ORDER_LIMIT:20}
+      window: ${TRADECORE_RATE_LIMIT_ORDER_WINDOW:PT1M}
+    cancel:
+      limit: ${TRADECORE_RATE_LIMIT_CANCEL_LIMIT:30}
+      window: ${TRADECORE_RATE_LIMIT_CANCEL_WINDOW:PT1M}
   execution:
     scheduling:
       enabled: ${TRADECORE_EXECUTION_ENABLED:true}
@@ -56,6 +66,9 @@ tradecore:
     user: ${TRADECORE_SECURITY_USER:tradecore-dev}
     password: ${TRADECORE_SECURITY_PASSWORD}
   market-data:
+    cache:
+      quote-ttl: ${TRADECORE_MARKET_DATA_QUOTE_CACHE_TTL:PT15S}
+      instrument-ttl: ${TRADECORE_MARKET_DATA_INSTRUMENT_CACHE_TTL:PT1H}
     scheduling:
       quote-enabled: ${TRADECORE_MARKET_DATA_QUOTE_REFRESH_ENABLED:true}
       quote-interval: ${TRADECORE_MARKET_DATA_QUOTE_REFRESH_INTERVAL:PT5M}

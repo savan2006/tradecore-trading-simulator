@@ -2,6 +2,7 @@ package com.tradecore.order;
 
 import com.tradecore.account.TradingAccount;
 import com.tradecore.account.TradingAccountRepository;
+import com.tradecore.audit.AuditService;
 import com.tradecore.portfolio.Position;
 import com.tradecore.portfolio.PositionRepository;
 import java.math.BigDecimal;
@@ -19,14 +20,16 @@ public class OrderCancellationService {
     private final TradingAccountRepository accountRepository;
     private final PositionRepository positionRepository;
     private final OrderEventRepository eventRepository;
+    private final AuditService auditService;
 
     public OrderCancellationService(TradingOrderRepository orderRepository,
             TradingAccountRepository accountRepository, PositionRepository positionRepository,
-            OrderEventRepository eventRepository) {
+            OrderEventRepository eventRepository, AuditService auditService) {
         this.orderRepository = orderRepository;
         this.accountRepository = accountRepository;
         this.positionRepository = positionRepository;
         this.eventRepository = eventRepository;
+        this.auditService = auditService;
     }
 
     @Transactional
@@ -78,6 +81,9 @@ public class OrderCancellationService {
         order.cancel(now);
         eventRepository.saveAndFlush(new OrderEvent(order, "PENDING", "CANCELLED", "ORDER_CANCELLED",
                 "Order cancelled; unfilled resources released", now));
+        auditService.record(systemIntradayOnly ? null : ownerEmail,
+                systemIntradayOnly ? "INTRADAY_ORDER_CANCELLED_BY_SQUARE_OFF" : "ORDER_CANCELLED",
+                "ORDER", order.getId(), systemIntradayOnly ? "{\"source\":\"INTRADAY_SQUARE_OFF\"}" : null);
         return OrderCancellationResponse.cancelled(order, releasedFunds, releasedQuantity);
     }
 }

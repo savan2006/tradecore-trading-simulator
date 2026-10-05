@@ -16,6 +16,11 @@ import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.domain.Specification;
 
 public interface TradingOrderRepository extends JpaRepository<TradingOrder, UUID>, JpaSpecificationExecutor<TradingOrder> {
+    long countByStatus(String status);
+    long countByAccount_Id(UUID accountId);
+    long countByAccount_IdAndStatus(UUID accountId, String status);
+    long countByAccount_IdAndSide(UUID accountId, String side);
+    long countByAccount_IdAndTradingMode(UUID accountId, String tradingMode);
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select o from TradingOrder o join fetch o.account join fetch o.instrument where o.id = :id")
     Optional<TradingOrder> findByIdForUpdate(@Param("id") UUID id);

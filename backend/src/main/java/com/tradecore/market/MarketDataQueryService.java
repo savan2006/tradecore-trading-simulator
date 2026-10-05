@@ -9,6 +9,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -30,37 +31,65 @@ public class MarketDataQueryService {
     private final InstrumentRepository instrumentRepository;
     private final MarketQuoteRepository quoteRepository;
     private final MarketCandleRepository candleRepository;
+    private final MarketDataCache cache;
 
     public MarketDataQueryService(InstrumentRepository instrumentRepository,
-            MarketQuoteRepository quoteRepository, MarketCandleRepository candleRepository) {
+            MarketQuoteRepository quoteRepository, MarketCandleRepository candleRepository,
+            MarketDataCache cache) {
         this.instrumentRepository = instrumentRepository;
         this.quoteRepository = quoteRepository;
         this.candleRepository = candleRepository;
+        this.cache = cache;
     }
 
     public List<MarketInstrumentResponse> listInstruments(String query) {
-        List<Instrument> instruments;
         if (query == null) {
-            instruments = instrumentRepository.findAllByExchangeAndTradableTrueOrderBySymbolAsc(NSE);
+            Optional<List<MarketInstrumentResponse>> cached = cache.getAllInstruments();
+            if (cached.isPresent()) return cached.get();
         } else {
             if (query.isBlank() || query.length() > 32) {
                 throw badRequest("query must contain 1 to 32 characters");
             }
+            Optional<List<MarketInstrumentResponse>> cached = cache.getInstrumentSearch(query);
+            if (cached.isPresent()) return cached.get();
+        }
+        List<Instrument> instruments;
+        if (query == null) {
+            instruments = instrumentRepository.findAllByExchangeAndTradableTrueOrderBySymbolAsc(NSE);
+        } else {
             instruments = instrumentRepository
                     .findAllByExchangeAndTradableTrueAndSymbolContainingIgnoreCaseOrderBySymbolAsc(NSE, query);
         }
-        return instruments.stream().map(MarketInstrumentResponse::from).toList();
+        List<MarketInstrumentResponse> response = instruments.stream().map(MarketInstrumentResponse::from).toList();
+        if (query == null) cache.putAllInstruments(response);
+        else cache.putInstrumentSearch(query, response);
+        return response;
     }
 
     public MarketInstrumentResponse getInstrument(String exchange, String symbol) {
-        return MarketInstrumentResponse.from(requireInstrument(exchange, symbol));
+        if (exchange == null || exchange.isBlank() || symbol == null || symbol.isBlank()) {
+            throw badRequest("exchange and symbol are required");
+        }
+        Optional<MarketInstrumentResponse> cached = cache.getInstrument(exchange, symbol);
+        if (cached.isPresent()) return cached.get();
+        MarketInstrumentResponse response = MarketInstrumentResponse.from(requireInstrument(exchange, symbol));
+        cache.putInstrument(exchange, symbol, response);
+        return response;
     }
 
     public MarketQuoteResponse getQuote(String exchange, String symbol) {
+        if (exchange == null || exchange.isBlank() || symbol == null || symbol.isBlank()) {
+            throw badRequest("exchange and symbol are required");
+        }
+        Instant now = Instant.now();
+        Optional<CachedMarketQuote> cached = cache.getQuote(exchange, symbol);
+        if (cached.isPresent()) return cached.get().toResponse(now);
         Instrument instrument = requireInstrument(exchange, symbol);
-        return quoteRepository.findByInstrument_Id(instrument.getId())
-                .map(quote -> MarketQuoteResponse.from(quote, Instant.now()))
-                .orElseGet(() -> MarketQuoteResponse.unavailable(instrument));
+        return quoteRepository.findByInstrument_Id(instrument.getId()).map(quote -> {
+            CachedMarketQuote value = CachedMarketQuote.from(quote);
+            cache.putQuote(exchange, symbol, value);
+            return value.toResponse(now);
+        }).orElseGet(() -> MarketQuoteResponse.unavailable(instrument));
     }
 
     public List<MarketQuoteResponse> getQuotes(Collection<String> requestedSymbols) {
@@ -75,14 +104,32 @@ public class MarketDataQueryService {
             throw notFound("Unsupported NSE symbol(s): " + String.join(", ", unsupported));
         }
 
-        List<MarketQuote> quotes = quoteRepository.findAllByInstrument_ExchangeAndInstrument_SymbolIn(NSE, symbols);
-        Map<UUID, MarketQuote> quotesByInstrumentId = new HashMap<>();
-        quotes.forEach(quote -> quotesByInstrumentId.put(quote.getInstrument().getId(), quote));
+        Map<String, CachedMarketQuote> quotesBySymbol = new HashMap<>();
+        List<String> cacheMisses = new ArrayList<>();
+        for (String symbol : symbols) {
+            Optional<CachedMarketQuote> cached = cache.getQuote(NSE, symbol);
+            if (cached.isPresent()) quotesBySymbol.put(symbol, cached.get());
+            else cacheMisses.add(symbol);
+        }
+        if (!cacheMisses.isEmpty()) {
+            List<MarketQuote> quotes = quoteRepository
+                    .findAllByInstrument_ExchangeAndInstrument_SymbolIn(NSE, cacheMisses);
+            Map<UUID, String> symbolsByInstrumentId = new HashMap<>();
+            instrumentsBySymbol.forEach((symbol, instrument) -> symbolsByInstrumentId.put(instrument.getId(), symbol));
+            for (MarketQuote quote : quotes) {
+                String symbol = symbolsByInstrumentId.get(quote.getInstrument().getId());
+                if (symbol != null) {
+                    CachedMarketQuote cached = CachedMarketQuote.from(quote);
+                    quotesBySymbol.put(symbol, cached);
+                    cache.putQuote(NSE, symbol, cached);
+                }
+            }
+        }
         Instant now = Instant.now();
         return symbols.stream().map(symbol -> {
             Instrument instrument = instrumentsBySymbol.get(symbol);
-            MarketQuote quote = quotesByInstrumentId.get(instrument.getId());
-            return quote == null ? MarketQuoteResponse.unavailable(instrument) : MarketQuoteResponse.from(quote, now);
+            CachedMarketQuote quote = quotesBySymbol.get(symbol);
+            return quote == null ? MarketQuoteResponse.unavailable(instrument) : quote.toResponse(now);
         }).toList();
     }
 

@@ -6,13 +6,13 @@ type RouteContext = { params: Promise<{ path: string[] }> };
 
 async function forward(request: NextRequest, context: RouteContext, method: "GET" | "POST") {
   const authorization = request.headers.get("authorization");
-  if (!authorization?.startsWith("Basic ")) {
-    return NextResponse.json({ message: "Basic authentication is required." }, { status: 401 });
-  }
-
   const { path } = await context.params;
   if (path.length === 0 || path.some((segment) => segment === ".." || segment.includes("\\"))) {
     return NextResponse.json({ message: "Invalid API path." }, { status: 400 });
+  }
+  const isPublicRegistration = method === "POST" && path.join("/") === "api/v1/auth/register";
+  if (!authorization?.startsWith("Basic ") && !isPublicRegistration) {
+    return NextResponse.json({ message: "Basic authentication is required." }, { status: 401 });
   }
   const backendBase = (process.env.TRADECORE_BACKEND_URL ?? "http://localhost:8080").replace(/\/$/, "");
   const target = `${backendBase}/${path.map(encodeURIComponent).join("/")}${request.nextUrl.search}`;
@@ -21,7 +21,7 @@ async function forward(request: NextRequest, context: RouteContext, method: "GET
     const response = await fetch(target, {
       method,
       headers: {
-        Authorization: authorization,
+        ...(authorization ? { Authorization: authorization } : {}),
         Accept: "application/json",
         ...(method === "POST" ? { "Content-Type": "application/json" } : {}),
       },

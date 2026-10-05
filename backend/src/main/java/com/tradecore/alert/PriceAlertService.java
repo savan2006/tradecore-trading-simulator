@@ -1,5 +1,6 @@
 package com.tradecore.alert;
 
+import com.tradecore.audit.AuditService;
 import com.tradecore.identity.User;
 import com.tradecore.identity.UserRepository;
 import com.tradecore.market.Instrument;
@@ -32,12 +33,14 @@ public class PriceAlertService {
     private final PriceAlertRepository alerts;
     private final MarketQuoteRepository quotes;
     private final NotificationRepository notifications;
+    private final AuditService auditService;
 
     public PriceAlertService(UserRepository users, WatchlistRepository watchlists, WatchlistItemRepository items,
             InstrumentRepository instruments, PriceAlertRepository alerts, MarketQuoteRepository quotes,
-            NotificationRepository notifications) {
+            NotificationRepository notifications, AuditService auditService) {
         this.users = users; this.watchlists = watchlists; this.items = items; this.instruments = instruments;
         this.alerts = alerts; this.quotes = quotes; this.notifications = notifications;
+        this.auditService = auditService;
     }
 
     @Transactional
@@ -91,6 +94,9 @@ public class PriceAlertService {
                 + " and met your " + alert.getCondition() + " target of " + alert.getTargetPrice().toPlainString() + ".";
         notifications.saveAndFlush(new Notification(alert.getUser(), "PRICE_ALERT", title, message, now));
         alerts.flush();
+        auditService.record(alert.getUser().getEmail(), "PRICE_ALERT_TRIGGERED", "PRICE_ALERT", alert.getId(),
+                "{\"symbol\":\"" + alert.getInstrument().getSymbol() + "\",\"condition\":\""
+                        + alert.getCondition() + "\"}");
         return true;
     }
 

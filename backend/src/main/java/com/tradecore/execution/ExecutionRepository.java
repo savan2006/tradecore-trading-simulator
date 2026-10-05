@@ -8,6 +8,7 @@ import org.springframework.data.repository.query.Param;
 import java.util.UUID;
 
 public interface ExecutionRepository extends JpaRepository<Execution, UUID> {
+    long countByAccount_Id(UUID accountId);
     long countByOrder_Id(UUID orderId);
 
     @Query(value = "select e from Execution e join fetch e.instrument join fetch e.order "

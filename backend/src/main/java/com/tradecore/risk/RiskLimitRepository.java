@@ -9,6 +9,14 @@ import java.util.List;
 import java.util.UUID;
 
 public interface RiskLimitRepository extends JpaRepository<RiskLimit, UUID> {
+    @Query("select r from RiskLimit r left join fetch r.instrument where r.enabled = true "
+            + "and (r.scope = 'GLOBAL' or r.scope = 'INSTRUMENT' "
+            + "or (r.scope = 'ACCOUNT' and r.account.id = :accountId)) "
+            + "and (r.effectiveFrom is null or r.effectiveFrom <= :now) "
+            + "and (r.effectiveUntil is null or r.effectiveUntil > :now) "
+            + "order by r.scope, r.limitType, r.id")
+    List<RiskLimit> findCurrentForAccount(@Param("accountId") UUID accountId, @Param("now") Instant now);
+
     @Query("select r from RiskLimit r where r.enabled = true "
             + "and (r.scope = 'GLOBAL' or (r.scope = 'ACCOUNT' and r.account.id = :accountId) "
             + "or (r.scope = 'INSTRUMENT' and r.instrument.id = :instrumentId)) "

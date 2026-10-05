@@ -22,8 +22,11 @@ public class RiskLimit {
     @Column(name = "created_at", nullable = false) private Instant createdAt;
     protected RiskLimit() {}
 
+    public Instrument getInstrument() { return instrument; }
     public String getScope() { return scope; }
     public String getLimitType() { return limitType; }
     public BigDecimal getLimitValue() { return limitValue; }
     public boolean isEnabled() { return enabled; }
+    public Instant getEffectiveFrom() { return effectiveFrom; }
+    public Instant getEffectiveUntil() { return effectiveUntil; }
 }

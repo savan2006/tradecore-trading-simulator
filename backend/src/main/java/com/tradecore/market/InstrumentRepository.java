@@ -8,6 +8,7 @@ import java.util.UUID;
 import java.util.Collection;
 
 public interface InstrumentRepository extends JpaRepository<Instrument, UUID> {
+    long countByTradableTrue();
     Optional<Instrument> findByExchangeAndSymbol(String exchange, String symbol);
 
     Optional<Instrument> findByProviderInstrumentKey(String providerInstrumentKey);

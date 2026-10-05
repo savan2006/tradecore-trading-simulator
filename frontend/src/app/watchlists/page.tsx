@@ -6,6 +6,14 @@ import { api, formatMoney, type ApiError, type LearningProfile, type PriceAlert,
 import { useAuth } from "@/lib/auth-context";
 import { EmptyState, ErrorState, LoadingState, LoginRequired, PageHeading, StatusBadge } from "@/components/page-states";
 
+type WatchlistQuote = NonNullable<Watchlist["items"][number]["quote"]> & {
+  open: number | null;
+  high: number | null;
+  low: number | null;
+  volume: number | null;
+};
+type QuoteStreamStatus = "connecting" | "live" | "reconnecting" | "unavailable";
+
 export default function WatchlistsPage() {
   const { session } = useAuth();
   const [watchlists, setWatchlists] = useState<Watchlist[] | null>(null);
@@ -56,6 +64,8 @@ export default function WatchlistsPage() {
   }, [session, refreshKey]);
 
   const allSymbols = useMemo(() => companies ?? [], [companies]);
+  const displayedSymbols = useMemo(() => [...new Set(watchlists?.flatMap((list) => list.items.map((item) => item.symbol)) ?? [])].sort(), [watchlists]);
+  const quoteStream = useWatchlistQuoteStream(displayedSymbols);
   const selectedAlertList = watchlists?.find((list) => list.id === alertWatchlistId);
   const alertSymbols = useMemo(() => selectedAlertList?.items.map((item) => {
     const profile = allSymbols.find((company) => company.symbol === item.symbol && company.exchange === item.exchange);
@@ -150,7 +160,8 @@ export default function WatchlistsPage() {
     </section>
 
     <section className="watchlist-stack">
-      <div className="section-heading"><div><p className="eyebrow">Your lists</p><h2>Watchlists</h2></div>{watchlists && <span className="muted">{watchlists.length} total</span>}</div>
+      <div className="section-heading"><div><p className="eyebrow">Your lists</p><h2>Watchlists</h2></div><div className="watchlist-actions">{watchlists && <span className="muted">{watchlists.length} total</span>}{displayedSymbols.length > 0 && <span className="market-stream-status"><StatusBadge status={quoteStream.status.toUpperCase()} />Quotes refresh automatically</span>}</div></div>
+      {quoteStream.message && <div className="notice notice-muted" role="status">{quoteStream.message}</div>}
       {loading && !watchlists ? <LoadingState label="Loading watchlists…" /> : errors.watchlists && !watchlists ? <ErrorState message={errors.watchlists} /> : !watchlists?.length ? <EmptyState message="No watchlists yet. Create one above to start saving companies." /> : watchlists.map((list) => <article className="panel" key={list.id}>
         <div className="panel-heading watchlist-panel-heading">
           <div><p className="eyebrow">Watchlist</p>{editingId === list.id ? <form className="rename-form" onSubmit={(event) => renameWatchlist(event, list.id)}><input aria-label="New watchlist name" value={editingName} onChange={(event) => setEditingName(event.target.value)} maxLength={80} required autoFocus /><button className="secondary-button" type="submit" disabled={Boolean(pending) || !editingName.trim()}>{pending === `rename-${list.id}` ? "Saving…" : "Save"}</button><button className="text-button" type="button" onClick={() => setEditingId(null)}>Cancel</button></form> : <h2>{list.name}</h2>}</div>
@@ -164,7 +175,7 @@ export default function WatchlistsPage() {
         </form>
         {errors.companies && <p className="form-error" role="alert">Supported companies could not be loaded. {errors.companies}</p>}
         {loading && !watchlists ? <LoadingState /> : list.items.length ? <div className="table-scroll"><table><thead><tr><th>Company</th><th>Last price</th><th>Quote freshness</th><th>Status</th><th>Actions</th></tr></thead><tbody>{list.items.map((item) => {
-          const quote = item.quote;
+          const quote = quoteStream.quotes[item.symbol] ?? item.quote;
           const quoteStatus = quote?.dataStatus ?? "UNAVAILABLE";
           return <tr key={item.id}>
             <td><Link className="text-link" href={`/companies/${encodeURIComponent(item.symbol)}`}>{item.symbol}</Link><small>{item.companyName} · {item.exchange}</small></td>
@@ -207,6 +218,143 @@ function formatFreshness(seconds: number | null | undefined) {
   if (minutes < 60) return `${minutes} min ago`;
   const hours = Math.floor(minutes / 60);
   return `${hours} hr${hours === 1 ? "" : "s"} ago`;
+}
+
+function useWatchlistQuoteStream(symbols: string[]) {
+  const symbolsKey = JSON.stringify([...new Set(symbols)].sort());
+  const desiredSymbols = new Set<string>(JSON.parse(symbolsKey) as string[]);
+  const hasSymbols = desiredSymbols.size > 0;
+  const desiredSymbolsRef = useRef(desiredSymbols);
+  desiredSymbolsRef.current = desiredSymbols;
+  const activeSymbolsRef = useRef(new Set<string>());
+  const socketRef = useRef<WebSocket | null>(null);
+  const [quotes, setQuotes] = useState<Record<string, WatchlistQuote>>({});
+  const [status, setStatus] = useState<QuoteStreamStatus>("unavailable");
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (desiredSymbolsRef.current.size === 0) {
+      setStatus("unavailable");
+      return;
+    }
+
+    let stopped = false;
+    let retryCount = 0;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    const send = (action: "subscribe" | "unsubscribe", symbol: string) => {
+      const socket = socketRef.current;
+      if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ action, symbol }));
+    };
+    const subscribeDesiredSymbols = () => {
+      for (const symbol of desiredSymbolsRef.current) {
+        if (activeSymbolsRef.current.has(symbol)) continue;
+        send("subscribe", symbol);
+        activeSymbolsRef.current.add(symbol);
+      }
+    };
+    const scheduleRetry = (reason: string) => {
+      setMessage(reason);
+      if (stopped) return;
+      if (retryCount < 1) {
+        retryCount += 1;
+        setStatus("reconnecting");
+        retryTimer = setTimeout(connect, 700);
+      } else setStatus("unavailable");
+    };
+    const connect = () => {
+      if (stopped) return;
+      setStatus(retryCount > 0 ? "reconnecting" : "connecting");
+      try {
+        const socket = new WebSocket(marketQuoteWebSocketUrl());
+        socketRef.current = socket;
+        socket.onopen = () => {
+          if (stopped) return;
+          setStatus("live");
+          setMessage(null);
+          subscribeDesiredSymbols();
+        };
+        socket.onmessage = (event) => {
+          try {
+            const payload: unknown = JSON.parse(String(event.data));
+            if (!payload || typeof payload !== "object") throw new Error("Invalid message object");
+            const streamMessage = payload as { type?: unknown; quote?: unknown; message?: unknown };
+            if (streamMessage.type === "quote") {
+              const quote = streamMessage.quote;
+              if (!isWatchlistQuote(quote) || !desiredSymbolsRef.current.has(quote.symbol)) throw new Error("Unexpected quote message");
+              setQuotes((current) => ({ ...current, [quote.symbol]: quote }));
+            } else if (streamMessage.type === "error") {
+              setMessage(typeof streamMessage.message === "string" ? streamMessage.message : "The quote stream returned an error.");
+            } else if (streamMessage.type !== "subscribed" && streamMessage.type !== "unsubscribed") {
+              throw new Error("Unknown stream message type");
+            }
+          } catch {
+            setMessage("A malformed market quote update was ignored.");
+          }
+        };
+        socket.onerror = () => setMessage("The market quote connection encountered an error.");
+        socket.onclose = () => {
+          if (socketRef.current !== socket) return;
+          socketRef.current = null;
+          activeSymbolsRef.current.clear();
+          if (!stopped) scheduleRetry("Market quote connection closed.");
+        };
+      } catch {
+        scheduleRetry("Could not connect to the market quote stream.");
+      }
+    };
+
+    connect();
+    return () => {
+      stopped = true;
+      if (retryTimer) clearTimeout(retryTimer);
+      const socket = socketRef.current;
+      if (socket) {
+        if (socket.readyState === WebSocket.OPEN) {
+          for (const symbol of activeSymbolsRef.current) send("unsubscribe", symbol);
+        }
+        activeSymbolsRef.current.clear();
+        socketRef.current = null;
+        if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) socket.close(1000, "Page changed");
+      }
+    };
+  }, [hasSymbols]);
+
+  useEffect(() => {
+    const desired = desiredSymbolsRef.current;
+    setQuotes((current) => Object.fromEntries(Object.entries(current).filter(([symbol]) => desired.has(symbol))));
+    const socket = socketRef.current;
+    if (socket?.readyState !== WebSocket.OPEN) return;
+    for (const symbol of activeSymbolsRef.current) {
+      if (desired.has(symbol)) continue;
+      socket.send(JSON.stringify({ action: "unsubscribe", symbol }));
+      activeSymbolsRef.current.delete(symbol);
+    }
+    for (const symbol of desired) {
+      if (activeSymbolsRef.current.has(symbol)) continue;
+      socket.send(JSON.stringify({ action: "subscribe", symbol }));
+      activeSymbolsRef.current.add(symbol);
+    }
+  }, [symbolsKey]);
+
+  return { quotes, status, message };
+}
+
+function isWatchlistQuote(value: unknown): value is WatchlistQuote {
+  if (!value || typeof value !== "object") return false;
+  const quote = value as Record<string, unknown>;
+  const nullableNumber = (field: string) => quote[field] === null || typeof quote[field] === "number";
+  const nullableString = (field: string) => quote[field] === null || typeof quote[field] === "string";
+  return typeof quote.symbol === "string" && typeof quote.exchange === "string"
+    && ["LIVE", "STALE", "UNAVAILABLE"].includes(String(quote.dataStatus))
+    && ["lastPrice", "open", "high", "low", "previousClose", "volume", "freshnessAgeSeconds"].every(nullableNumber)
+    && ["marketTimestamp", "providerUpdatedTimestamp"].every(nullableString);
+}
+
+function marketQuoteWebSocketUrl() {
+  const base = process.env.NEXT_PUBLIC_API_BASE_URL || `${window.location.protocol}//${window.location.hostname}:8080`;
+  const url = new URL("/ws/market-quotes", base);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  return url.toString();
 }
 
 function messageOf(error: unknown) {

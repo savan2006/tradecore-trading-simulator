@@ -111,6 +111,24 @@ export type Trade = {
   executedAt: string;
 };
 export type TradePage = { content: Trade[]; page: number; size: number; totalElements: number; totalPages: number; hasNext: boolean };
+export type TradeJournalEntry = {
+  id: string;
+  orderId: string;
+  exchange: string;
+  symbol: string;
+  side: string;
+  tradingMode: string;
+  quantity: number;
+  thesis: string;
+  strategyTag: string | null;
+  wentWell: string | null;
+  wentWrong: string | null;
+  lessonLearned: string | null;
+  rating: number | null;
+  createdAt: string;
+  updatedAt: string;
+};
+export type TradeJournalPage = { content: TradeJournalEntry[]; page: number; size: number; totalElements: number; totalPages: number; hasNext: boolean };
 export type Cancellation = { orderId: string; status: string; releasedFunds: number; releasedSellQuantity: number; updatedAt: string };
 export type PlaceOrderRequest = {
   exchange: string;
@@ -160,6 +178,121 @@ export type NotificationItem = {
 };
 export type NotificationPage = { items: NotificationItem[]; page: number; size: number; totalElements: number; totalPages: number };
 export type ReadAllNotificationsResult = { updatedCount: number };
+export type RiskLimit = {
+  scope: string;
+  limitType: string;
+  configuredValue: number;
+  exchange: string | null;
+  symbol: string | null;
+  currentUsage: number | null;
+  remainingValue: number | null;
+  effectiveFrom: string | null;
+  effectiveUntil: string | null;
+};
+export type PerformancePoint = {
+  symbol: string;
+  tradingMode: string;
+  closedAt: string;
+  realizedPnl: number;
+};
+export type ClosedPositionPerformance = { symbol: string; tradingMode: string; realizedPnl: number };
+export type Performance = {
+  totalOrders: number;
+  filledOrders: number;
+  cancelledOrders: number;
+  totalExecutions: number;
+  currentOpenPositions: number;
+  realizedPnl: number;
+  unrealizedPnl: number | null;
+  totalPnl: number | null;
+  currentPortfolioValue: number | null;
+  valuationStatus: string;
+  buyOrders: number;
+  sellOrders: number;
+  deliveryOrders: number;
+  intradayOrders: number;
+  profitableClosedPositions: number;
+  losingClosedPositions: number;
+  bestRealizedPosition: ClosedPositionPerformance | null;
+  worstRealizedPosition: ClosedPositionPerformance | null;
+  recentPerformance: PerformancePoint[];
+};
+export type RegistrationResult = {
+  userId: string;
+  email: string;
+  displayName: string;
+  accountId: string;
+  accountStatus: string;
+  currency: string;
+  availableBalance: number;
+  reservedBalance: number;
+  accountCreatedAt: string;
+};
+export type AdminOverview = {
+  totalUsers: number;
+  activeTradingAccounts: number;
+  pendingOrders: number;
+  filledOrders: number;
+  cancelledOrders: number;
+  openPositions: number;
+  unreadNotifications: number;
+  supportedInstruments: number;
+  latestMarketDataRefreshAt: string | null;
+  latestMarketDataRefreshStatus: string;
+};
+export type AdminUser = { id: string; email: string; displayName: string; role: string; status: string; createdAt: string };
+export type AdminUserPage = { content: AdminUser[]; page: number; size: number; totalElements: number; totalPages: number; hasNext: boolean };
+export type AdminOrder = {
+  orderId: string;
+  exchange: string;
+  symbol: string;
+  side: string;
+  orderType: string;
+  tradingMode: string;
+  requestedQuantity: number;
+  executedQuantity: number;
+  remainingQuantity: number;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+};
+export type AdminOrderPage = { content: AdminOrder[]; page: number; size: number; totalElements: number; totalPages: number; hasNext: boolean };
+export type AdminMarketStatus = {
+  quoteRefreshEnabled: boolean;
+  quoteRefreshInterval: string;
+  lastQuoteRefreshAttemptAt: string | null;
+  lastQuoteRefreshOutcome: string;
+  lastSuccessfulQuoteRefreshAt: string | null;
+  quoteRefreshFailureCount: number;
+  candleRefreshEnabled: boolean;
+  candleRefreshCron: string;
+  lastCandleRefreshAttemptAt: string | null;
+  lastCandleRefreshOutcome: string;
+  lastSuccessfulCandleRefreshAt: string | null;
+  candleRefreshFailureCount: number;
+  orderExecutionEnabled: boolean;
+  orderExecutionInterval: string;
+  squareOffCheckInterval: string;
+  latestPersistedQuoteAt: string | null;
+};
+export type AdminAuditLog = {
+  id: string;
+  actorId: string | null;
+  actorEmail: string | null;
+  action: string;
+  targetType: string;
+  targetId: string | null;
+  occurredAt: string;
+  outcome: string;
+};
+export type AdminAuditLogPage = {
+  content: AdminAuditLog[];
+  page: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
+  hasNext: boolean;
+};
 
 export type DashboardData = {
   instruments: Instrument[] | null;
@@ -232,6 +365,31 @@ async function write<T>(method: "POST" | "PUT" | "DELETE", path: string, basicCr
   return response.json() as Promise<T>;
 }
 
+async function registerRequest(body: { displayName: string; email: string; password: string }): Promise<RegistrationResult> {
+  const response = await fetch("/api/backend/api/v1/auth/register", {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null) as {
+      detail?: string; message?: string; title?: string; error?: string;
+    } | null;
+    const fallback = response.status === 409
+      ? "An account with this email is already registered."
+      : response.status === 400
+        ? "The server rejected these details. Check your display name, email, and password requirements."
+        : response.status === 401
+          ? "The registration request was not authorized. Please try again."
+          : `Registration failed (${response.status}).`;
+    const error = new Error(payload?.detail ?? payload?.message ?? payload?.title ?? payload?.error ?? fallback) as ApiError;
+    error.status = response.status;
+    throw error;
+  }
+  return response.json() as Promise<RegistrationResult>;
+}
+
 async function placeOrderRequest(basicCredential: string, body: PlaceOrderRequest): Promise<PlacedOrder> {
   const response = await fetch("/api/backend/api/v1/orders", {
     method: "POST",
@@ -258,6 +416,7 @@ async function placeOrderRequest(basicCredential: string, body: PlaceOrderReques
 }
 
 export const api = {
+  register: registerRequest,
   verifyLogin: (basic: string, signal?: AbortSignal) =>
     request<Instrument[]>("/api/v1/market/instruments?query=TCS", basic, signal),
   instruments: (basic: string, signal?: AbortSignal) => request<Instrument[]>("/api/v1/market/instruments", basic, signal),
@@ -278,6 +437,20 @@ export const api = {
     request<Order>(`/api/v1/orders/${encodeURIComponent(orderId)}`, basic, signal),
   trades: (basic: string, page = 0, size = 10, signal?: AbortSignal) =>
     request<TradePage>(`/api/v1/trades?page=${page}&size=${size}`, basic, signal),
+  journal: (basic: string, page = 0, size = 20, signal?: AbortSignal) =>
+    request<TradeJournalPage>(`/api/v1/journal?page=${Math.max(0, page)}&size=${Math.min(100, Math.max(1, size))}`, basic, signal),
+  journalEntry: (basic: string, id: string, signal?: AbortSignal) =>
+    request<TradeJournalEntry>(`/api/v1/journal/${encodeURIComponent(id)}`, basic, signal),
+  createJournalEntry: (basic: string, input: {
+    orderId: string; thesis: string; strategyTag?: string; wentWell?: string;
+    wentWrong?: string; lessonLearned?: string; rating?: number | null;
+  }) => write<TradeJournalEntry>("POST", "/api/v1/journal", basic, input),
+  updateJournalEntry: (basic: string, id: string, input: {
+    thesis: string; strategyTag?: string; wentWell?: string;
+    wentWrong?: string; lessonLearned?: string; rating?: number | null;
+  }) => write<TradeJournalEntry>("PUT", `/api/v1/journal/${encodeURIComponent(id)}`, basic, input),
+  deleteJournalEntry: (basic: string, id: string) =>
+    write<void>("DELETE", `/api/v1/journal/${encodeURIComponent(id)}`, basic),
   cancelOrder: (basic: string, orderId: string) =>
     mutate<Cancellation>(`/api/v1/orders/${encodeURIComponent(orderId)}/cancel`, basic),
   placeOrder: placeOrderRequest,
@@ -308,6 +481,43 @@ export const api = {
     write<NotificationItem>("POST", `/api/v1/notifications/${encodeURIComponent(id)}/read`, basic),
   markAllNotificationsRead: (basic: string) =>
     write<ReadAllNotificationsResult>("POST", "/api/v1/notifications/read-all", basic),
+  adminOverview: (basic: string, signal?: AbortSignal) =>
+    request<AdminOverview>("/api/v1/admin/overview", basic, signal),
+  adminUsers: (basic: string, options: { page?: number; size?: number; search?: string } = {}, signal?: AbortSignal) => {
+    const params = new URLSearchParams({ page: String(options.page ?? 0), size: String(options.size ?? 20) });
+    if (options.search?.trim()) params.set("search", options.search.trim());
+    return request<AdminUserPage>(`/api/v1/admin/users?${params.toString()}`, basic, signal);
+  },
+  adminOrders: (basic: string, options: {
+    page?: number; size?: number; status?: string; symbol?: string; tradingMode?: string; from?: string; to?: string;
+  } = {}, signal?: AbortSignal) => {
+    const params = new URLSearchParams({ page: String(options.page ?? 0), size: String(options.size ?? 20) });
+    if (options.status) params.set("status", options.status);
+    if (options.symbol?.trim()) params.set("symbol", options.symbol.trim());
+    if (options.tradingMode) params.set("tradingMode", options.tradingMode);
+    if (options.from) params.set("from", options.from);
+    if (options.to) params.set("to", options.to);
+    return request<AdminOrderPage>(`/api/v1/admin/orders?${params.toString()}`, basic, signal);
+  },
+  adminMarketStatus: (basic: string, signal?: AbortSignal) =>
+    request<AdminMarketStatus>("/api/v1/admin/market-status", basic, signal),
+  adminAuditLogs: (basic: string, options: {
+    page?: number; size?: number; action?: string; actor?: string; targetType?: string;
+    outcome?: string; from?: string; to?: string;
+  } = {}, signal?: AbortSignal) => {
+    const params = new URLSearchParams({ page: String(options.page ?? 0), size: String(options.size ?? 20) });
+    if (options.action?.trim()) params.set("action", options.action.trim());
+    if (options.actor?.trim()) params.set("actor", options.actor.trim());
+    if (options.targetType?.trim()) params.set("targetType", options.targetType.trim());
+    if (options.outcome) params.set("outcome", options.outcome);
+    if (options.from) params.set("from", options.from);
+    if (options.to) params.set("to", options.to);
+    return request<AdminAuditLogPage>(`/api/v1/admin/audit-logs?${params.toString()}`, basic, signal);
+  },
+  riskMe: (basic: string, signal?: AbortSignal) =>
+    request<RiskLimit[]>("/api/v1/risk/me", basic, signal),
+  performanceMe: (basic: string, signal?: AbortSignal) =>
+    request<Performance>("/api/v1/performance/me", basic, signal),
 };
 
 export async function loadDashboard(basic: string, signal: AbortSignal): Promise<DashboardData> {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { api, formatMoney, type ApiError, type Order, type OrderPage, type TradePage } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { EmptyState, ErrorState, LoadingState, LoginRequired, PageHeading, StatusBadge } from "@/components/page-states";
@@ -105,7 +106,7 @@ export default function OrdersPage() {
         {(statusFilter || symbolFilter) && <button className="text-button" type="button" onClick={() => { setStatusFilter(""); setSymbolInput(""); setSymbolFilter(""); setPage(0); }}>Clear</button>}
       </form>
       {ordersLoading ? <LoadingState label="Loading your orders…" /> : ordersError ? <ErrorState message={ordersError} /> : !orders?.content.length ? <EmptyState message="No orders match these filters." /> : <>
-        <div className="table-scroll"><table><thead><tr><th>Symbol</th><th>Side</th><th>Type</th><th>Mode</th><th>Quantity</th><th>Status</th><th>Created</th><th>Details</th></tr></thead><tbody>{orders.content.map((order) => <tr key={order.orderId}><td><strong>{order.symbol}</strong><small>{order.exchange}</small></td><td>{order.side}</td><td>{order.orderType}</td><td>{order.tradingMode}</td><td>{order.requestedQuantity}</td><td><StatusBadge status={order.status} /></td><td>{formatDate(order.createdAt)}</td><td><button className="text-button" type="button" onClick={() => setSelectedId(order.orderId)}>{selectedId === order.orderId ? "Selected" : "View"}</button></td></tr>)}</tbody></table></div>
+        <div className="table-scroll"><table><thead><tr><th>Symbol</th><th>Side</th><th>Type</th><th>Mode</th><th>Quantity</th><th>Status</th><th>Created</th><th>Details / review</th></tr></thead><tbody>{orders.content.map((order) => <tr key={order.orderId}><td><strong>{order.symbol}</strong><small>{order.exchange}</small></td><td>{order.side}</td><td>{order.orderType}</td><td>{order.tradingMode}</td><td>{order.requestedQuantity}</td><td><StatusBadge status={order.status} /></td><td>{formatDate(order.createdAt)}</td><td><button className="text-button" type="button" onClick={() => setSelectedId(order.orderId)}>{selectedId === order.orderId ? "Selected" : "View"}</button>{order.status === "FILLED" && <> <span aria-hidden="true">·</span> <Link className="text-link" href={`/journal?orderId=${encodeURIComponent(order.orderId)}`}>Review trade</Link></>}</td></tr>)}</tbody></table></div>
         <Pagination page={page} totalPages={orders.totalPages} hasNext={orders.hasNext} onChange={setPage} />
       </>}
     </section>
@@ -124,7 +125,7 @@ export default function OrdersPage() {
     <section className="panel history-panel trades-panel">
       <div className="history-heading"><div><p className="eyebrow">Completed virtual executions</p><h2>Trades</h2></div><span className="muted">{trades?.totalElements ?? 0} total</span></div>
       {tradesLoading ? <LoadingState label="Loading your trades…" /> : tradesError ? <ErrorState message={tradesError} /> : !trades?.content.length ? <EmptyState message="No executions yet. Pending orders are not trades." /> : <>
-        <div className="table-scroll"><table><thead><tr><th>Symbol</th><th>Side</th><th>Mode</th><th>Quantity</th><th>Price</th><th>Executed</th><th>Order</th></tr></thead><tbody>{trades.content.map((trade) => <tr key={trade.executionId}><td><strong>{trade.symbol}</strong><small>{trade.exchange}</small></td><td>{trade.side}</td><td>{trade.tradingMode}</td><td>{trade.executedQuantity}</td><td>{formatMoney(trade.executionPrice)}</td><td>{formatDate(trade.executedAt)}</td><td><button className="text-button" type="button" onClick={() => setSelectedId(trade.orderId)}>View order</button></td></tr>)}</tbody></table></div>
+        <div className="table-scroll"><table><thead><tr><th>Symbol</th><th>Side</th><th>Mode</th><th>Quantity</th><th>Price</th><th>Executed</th><th>Order / review</th></tr></thead><tbody>{trades.content.map((trade) => <tr key={trade.executionId}><td><strong>{trade.symbol}</strong><small>{trade.exchange}</small></td><td>{trade.side}</td><td>{trade.tradingMode}</td><td>{trade.executedQuantity}</td><td>{formatMoney(trade.executionPrice)}</td><td>{formatDate(trade.executedAt)}</td><td><button className="text-button" type="button" onClick={() => setSelectedId(trade.orderId)}>View order</button> <span aria-hidden="true">·</span> <Link className="text-link" href={`/journal?orderId=${encodeURIComponent(trade.orderId)}`}>Review trade</Link></td></tr>)}</tbody></table></div>
         <p className="panel-footnote">Showing the latest {trades.content.length} of {trades.totalElements} executions.</p>
       </>}
     </section>

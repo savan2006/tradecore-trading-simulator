@@ -23,6 +23,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.http.MediaType;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -30,6 +31,9 @@ import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -202,6 +206,114 @@ class OrderAndTradeHistoryApiTest {
         assertThat(jdbc.queryForObject("select count(*) from ledger_entry where account_id=?", Integer.class, owner.id)).isEqualTo(ledgerBefore);
         assertThat(jdbc.queryForObject("select count(*) from execution where account_id=?", Integer.class, owner.id)).isEqualTo(executionsBefore);
         verifyNoInteractions(provider);
+    }
+
+    @Test
+    void journalCreatesListsGetsAndRejectsDuplicateForOwnFilledTrade() throws Exception {
+        Account owner = account();
+        UUID orderId = place(owner, "TCS", "DELIVERY");
+        assertThat(execution.executePending(orderId)).isTrue();
+        String body = journalBody(orderId, "Planned entry after comparing recent levels.");
+
+        MvcResult created = mvc.perform(post("/api/v1/journal").header("Authorization", basic(owner.email))
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.orderId").value(orderId.toString()))
+                .andExpect(jsonPath("$.symbol").value("TCS"))
+                .andExpect(jsonPath("$.thesis").value("Planned entry after comparing recent levels."))
+                .andExpect(jsonPath("$.rating").value(4)).andReturn();
+        String journalId = mapper.readTree(created.getResponse().getContentAsString()).get("id").asText();
+
+        mvc.perform(post("/api/v1/journal").header("Authorization", basic(owner.email))
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isConflict());
+        mvc.perform(get("/api/v1/journal").header("Authorization", basic(owner.email)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].id").value(journalId));
+        mvc.perform(get("/api/v1/journal/{id}", journalId).header("Authorization", basic(owner.email)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.orderId").value(orderId.toString()));
+    }
+
+    @Test
+    void journalRejectsAnotherUsersAndNonFilledOrders() throws Exception {
+        Account owner = account(), other = account();
+        UUID ownersOrder = place(owner, "TCS", "DELIVERY");
+        assertThat(execution.executePending(ownersOrder)).isTrue();
+        mvc.perform(post("/api/v1/journal").header("Authorization", basic(other.email))
+                        .contentType(MediaType.APPLICATION_JSON).content(journalBody(ownersOrder, "Not mine")))
+                .andExpect(status().isNotFound());
+
+        UUID pending = place(other, "INFY", "DELIVERY");
+        mvc.perform(post("/api/v1/journal").header("Authorization", basic(other.email))
+                        .contentType(MediaType.APPLICATION_JSON).content(journalBody(pending, "Still pending")))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    void journalCrudIsOwnerScopedAndDoesNotMutateFinancialStateOrCallProvider() throws Exception {
+        Account owner = account(), other = account();
+        UUID orderId = place(owner, "TCS", "DELIVERY");
+        assertThat(execution.executePending(orderId)).isTrue();
+        var accountBefore = jdbc.queryForMap("select available_balance,reserved_balance,updated_at,version from trading_account where id=?", owner.id);
+        int ledgerBefore = jdbc.queryForObject("select count(*) from ledger_entry where account_id=?", Integer.class, owner.id);
+        int executionBefore = jdbc.queryForObject("select count(*) from execution where account_id=?", Integer.class, owner.id);
+        long orderVersion = jdbc.queryForObject("select version from trading_order where id=?", Long.class, orderId);
+        clearInvocations(provider);
+        MvcResult created = mvc.perform(post("/api/v1/journal").header("Authorization", basic(owner.email))
+                        .contentType(MediaType.APPLICATION_JSON).content(journalBody(orderId, "Original thesis")))
+                .andExpect(status().isCreated()).andReturn();
+        String journalId = mapper.readTree(created.getResponse().getContentAsString()).get("id").asText();
+
+        mvc.perform(put("/api/v1/journal/{id}", journalId).header("Authorization", basic(owner.email))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"thesis\":\"Updated thesis\",\"strategyTag\":\"breakout\",\"wentWell\":\"Followed plan\",\"wentWrong\":\"Exited late\",\"lessonLearned\":\"Use a written exit\",\"rating\":5}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.thesis").value("Updated thesis"))
+                .andExpect(jsonPath("$.strategyTag").value("breakout")).andExpect(jsonPath("$.rating").value(5));
+        mvc.perform(get("/api/v1/journal/{id}", journalId).header("Authorization", basic(other.email)))
+                .andExpect(status().isNotFound());
+        mvc.perform(put("/api/v1/journal/{id}", journalId).header("Authorization", basic(other.email))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"thesis\":\"Attempt\"}"))
+                .andExpect(status().isNotFound());
+        mvc.perform(delete("/api/v1/journal/{id}", journalId).header("Authorization", basic(other.email)))
+                .andExpect(status().isNotFound());
+        mvc.perform(delete("/api/v1/journal/{id}", journalId).header("Authorization", basic(owner.email)))
+                .andExpect(status().isNoContent());
+        mvc.perform(get("/api/v1/journal/{id}", journalId).header("Authorization", basic(owner.email)))
+                .andExpect(status().isNotFound());
+
+        assertThat(jdbc.queryForMap("select available_balance,reserved_balance,updated_at,version from trading_account where id=?", owner.id)).isEqualTo(accountBefore);
+        assertThat(jdbc.queryForObject("select count(*) from ledger_entry where account_id=?", Integer.class, owner.id)).isEqualTo(ledgerBefore);
+        assertThat(jdbc.queryForObject("select count(*) from execution where account_id=?", Integer.class, owner.id)).isEqualTo(executionBefore);
+        assertThat(jdbc.queryForObject("select version from trading_order where id=?", Long.class, orderId)).isEqualTo(orderVersion);
+        verifyNoInteractions(provider);
+    }
+
+    @Test
+    void journalPaginationIsBoundedAndEndpointsRequireAuthentication() throws Exception {
+        mvc.perform(get("/api/v1/journal")).andExpect(status().isUnauthorized());
+        Account owner = account();
+        putQuote(infyId, "100");
+        UUID[] orderIds = new UUID[2];
+        for (int i = 0; i < 2; i++) {
+            UUID id = place(owner, i == 0 ? "TCS" : "INFY", "DELIVERY");
+            orderIds[i] = id;
+            assertThat(execution.executePending(id)).isTrue();
+            mvc.perform(post("/api/v1/journal").header("Authorization", basic(owner.email))
+                            .contentType(MediaType.APPLICATION_JSON).content(journalBody(id, "Thesis " + i)))
+                    .andExpect(status().isCreated());
+        }
+        mvc.perform(get("/api/v1/journal").param("page", "0").param("size", "1")
+                        .header("Authorization", basic(owner.email)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].orderId").value(orderIds[1].toString()))
+                .andExpect(jsonPath("$.totalElements").value(2)).andExpect(jsonPath("$.hasNext").value(true));
+        mvc.perform(get("/api/v1/journal").param("size", "101").header("Authorization", basic(owner.email)))
+                .andExpect(status().isBadRequest());
+    }
+
+    private String journalBody(UUID orderId, String thesis) throws Exception {
+        return mapper.writeValueAsString(java.util.Map.of("orderId", orderId, "thesis", thesis,
+                "strategyTag", "planned", "wentWell", "Patient entry", "wentWrong", "None",
+                "lessonLearned", "Record the plan", "rating", 4));
     }
 
     private org.springframework.test.web.servlet.ResultActions orders(Account account, String... params) throws Exception {

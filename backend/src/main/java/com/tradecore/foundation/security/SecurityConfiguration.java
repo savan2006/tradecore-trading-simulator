@@ -10,6 +10,7 @@ import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.www.BasicAuthenticationFilter;
 import jakarta.servlet.DispatcherType;
 import com.tradecore.identity.UserRepository;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
@@ -19,15 +20,17 @@ import java.util.Locale;
 public class SecurityConfiguration {
 
     @Bean
-    SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    SecurityFilterChain securityFilterChain(HttpSecurity http, ApiRateLimiter rateLimiter) throws Exception {
         return http
                 .authorizeHttpRequests(authorize -> authorize
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                         .requestMatchers("/actuator/health", "/actuator/health/**", "/api/v1/auth/register").permitAll()
                         .requestMatchers("/ws/market-quotes").permitAll()
+                        .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated())
                 .httpBasic(Customizer.withDefaults())
                 .csrf(csrf -> csrf.disable())
+                .addFilterAfter(new ApiRateLimitFilter(rateLimiter), BasicAuthenticationFilter.class)
                 .build();
     }
 

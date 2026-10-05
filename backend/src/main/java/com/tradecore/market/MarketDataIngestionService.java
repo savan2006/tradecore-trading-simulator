@@ -39,6 +39,7 @@ public class MarketDataIngestionService {
     private final MarketQuoteRepository quoteRepository;
     private final MarketCandleRepository candleRepository;
     private final MarketDataQueryService queryService;
+    private final MarketDataCache marketDataCache;
     private final MarketQuoteWebSocketHandler quoteStream;
     private final TransactionTemplate transactionTemplate;
 
@@ -48,6 +49,7 @@ public class MarketDataIngestionService {
             MarketQuoteRepository quoteRepository,
             MarketCandleRepository candleRepository,
             MarketDataQueryService queryService,
+            MarketDataCache marketDataCache,
             MarketQuoteWebSocketHandler quoteStream,
             PlatformTransactionManager transactionManager) {
         this.provider = provider;
@@ -55,6 +57,7 @@ public class MarketDataIngestionService {
         this.quoteRepository = quoteRepository;
         this.candleRepository = candleRepository;
         this.queryService = queryService;
+        this.marketDataCache = marketDataCache;
         this.quoteStream = quoteStream;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
     }
@@ -103,6 +106,11 @@ public class MarketDataIngestionService {
             }
             return new MarketDataIngestionResult(quotes.size(), inserted, updated, 0, stale);
         });
+        // The transaction above has committed. Drop every persisted symbol so subsequent reads load
+        // the committed row; WebSocket publication below may then repopulate it with the same value.
+        for (Instrument instrument : selected) {
+            marketDataCache.evictQuote(EXCHANGE, instrument.getSymbol());
+        }
         for (String symbol : changedSymbols) {
             try {
                 quoteStream.publish(queryService.getQuote(EXCHANGE, symbol));

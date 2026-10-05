@@ -10,7 +10,9 @@ import java.util.Optional;
 import java.util.UUID;
 
 public interface TradingAccountRepository extends JpaRepository<TradingAccount, UUID> {
+    long countByStatus(String status);
     Optional<TradingAccount> findByUser_Id(UUID userId);
+    Optional<TradingAccount> findByUser_Email(String email);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select a from TradingAccount a where a.id = :accountId")

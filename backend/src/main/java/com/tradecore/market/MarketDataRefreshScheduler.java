@@ -24,6 +24,10 @@ public class MarketDataRefreshScheduler {
     private final AtomicBoolean candleRunning = new AtomicBoolean();
     private final AtomicReference<Instant> lastSuccessfulQuoteRunAt = new AtomicReference<>();
     private final AtomicReference<Instant> lastSuccessfulCandleRunAt = new AtomicReference<>();
+    private final AtomicReference<Instant> lastQuoteAttemptAt = new AtomicReference<>();
+    private final AtomicReference<Instant> lastCandleAttemptAt = new AtomicReference<>();
+    private final AtomicReference<String> lastQuoteOutcome = new AtomicReference<>("NOT_RUN");
+    private final AtomicReference<String> lastCandleOutcome = new AtomicReference<>("NOT_RUN");
     private final AtomicLong quoteFailures = new AtomicLong();
     private final AtomicLong candleFailures = new AtomicLong();
 
@@ -51,6 +55,7 @@ public class MarketDataRefreshScheduler {
             return;
         }
         run("quotes", quoteRunning, quoteFailures, lastSuccessfulQuoteRunAt,
+                lastQuoteAttemptAt, lastQuoteOutcome,
                 ingestionService::ingestCurrentQuotes);
     }
 
@@ -67,6 +72,7 @@ public class MarketDataRefreshScheduler {
             return;
         }
         run("daily-candles", candleRunning, candleFailures, lastSuccessfulCandleRunAt,
+                lastCandleAttemptAt, lastCandleOutcome,
                 ingestionService::ingestRecentDailyCandles);
     }
 
@@ -74,21 +80,29 @@ public class MarketDataRefreshScheduler {
     public Instant getLastSuccessfulCandleRunAt() { return lastSuccessfulCandleRunAt.get(); }
     public long getQuoteFailureCount() { return quoteFailures.get(); }
     public long getCandleFailureCount() { return candleFailures.get(); }
+    public Instant getLastQuoteAttemptAt() { return lastQuoteAttemptAt.get(); }
+    public Instant getLastCandleAttemptAt() { return lastCandleAttemptAt.get(); }
+    public String getLastQuoteOutcome() { return lastQuoteOutcome.get(); }
+    public String getLastCandleOutcome() { return lastCandleOutcome.get(); }
 
     private void run(String jobName, AtomicBoolean running, AtomicLong failures,
-            AtomicReference<Instant> lastSuccess, IngestionOperation operation) {
+            AtomicReference<Instant> lastSuccess, AtomicReference<Instant> lastAttemptAt,
+            AtomicReference<String> lastOutcome, IngestionOperation operation) {
         if (!running.compareAndSet(false, true)) {
             log.warn("Market-data {} refresh skipped because the previous run is still active", jobName);
             return;
         }
 
         Instant startedAt = Instant.now();
+        lastAttemptAt.set(startedAt);
+        lastOutcome.set("RUNNING");
         long startedNanos = System.nanoTime();
         log.info("Market-data {} refresh started at {}", jobName, startedAt);
         try {
             MarketDataIngestionResult result = operation.ingest();
             Instant completedAt = Instant.now();
             lastSuccess.set(completedAt);
+            lastOutcome.set("SUCCESS");
             long elapsedMillis = (System.nanoTime() - startedNanos) / 1_000_000;
             log.info("Market-data {} refresh completed at {} durationMs={} processed={} inserted={} "
                             + "updated={} skipped={} stale={} lastSuccessfulRunAt={}",
@@ -96,11 +110,13 @@ public class MarketDataRefreshScheduler {
                     result.skipped(), result.stale(), lastSuccess.get());
         } catch (RuntimeException failure) {
             long failureCount = failures.incrementAndGet();
+            lastOutcome.set("FAILED");
             long elapsedMillis = (System.nanoTime() - startedNanos) / 1_000_000;
             log.error("Market-data {} refresh failed category={} durationMs={} failures={} "
                             + "lastSuccessfulRunAt={}",
                     jobName, failureCategory(failure), elapsedMillis, failureCount, lastSuccess.get(), failure);
         } finally {
+            if ("RUNNING".equals(lastOutcome.get())) lastOutcome.set("FAILED");
             running.set(false);
         }
     }

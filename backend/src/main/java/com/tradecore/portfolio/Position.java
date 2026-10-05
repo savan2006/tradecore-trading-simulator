@@ -42,6 +42,7 @@ public class Position {
     public long getReservedQuantity() { return reservedQuantity; }
     public BigDecimal getAveragePrice() { return averagePrice; }
     public BigDecimal getRealizedPnl() { return realizedPnl; }
+    public Instant getUpdatedAt() { return updatedAt; }
 
     public void reserve(long amount, Instant now) {
         if (amount <= 0 || quantity - reservedQuantity < amount) {

@@ -2,6 +2,7 @@ package com.tradecore.execution;
 
 import com.tradecore.account.TradingAccount;
 import com.tradecore.account.TradingAccountRepository;
+import com.tradecore.audit.AuditService;
 import com.tradecore.ledger.LedgerEntry;
 import com.tradecore.ledger.LedgerEntryRepository;
 import com.tradecore.market.MarketHoursPolicy;
@@ -34,11 +35,12 @@ public class OrderExecutionService {
     private final LedgerEntryRepository ledgerRepository;
     private final OrderEventRepository eventRepository;
     private final MarketHoursPolicy marketHoursPolicy;
+    private final AuditService auditService;
 
     public OrderExecutionService(TradingOrderRepository orderRepository, TradingAccountRepository accountRepository,
             PositionRepository positionRepository, MarketQuoteRepository quoteRepository,
             ExecutionRepository executionRepository, LedgerEntryRepository ledgerRepository,
-            OrderEventRepository eventRepository, MarketHoursPolicy marketHoursPolicy) {
+            OrderEventRepository eventRepository, MarketHoursPolicy marketHoursPolicy, AuditService auditService) {
         this.orderRepository = orderRepository;
         this.accountRepository = accountRepository;
         this.positionRepository = positionRepository;
@@ -47,6 +49,7 @@ public class OrderExecutionService {
         this.ledgerRepository = ledgerRepository;
         this.eventRepository = eventRepository;
         this.marketHoursPolicy = marketHoursPolicy;
+        this.auditService = auditService;
     }
 
     @Transactional
@@ -112,6 +115,15 @@ public class OrderExecutionService {
         order.fill(quantity, now);
         eventRepository.saveAndFlush(new OrderEvent(order, "PENDING", "FILLED", "ORDER_FILLED",
                 "Virtual order filled from persisted market quote", now));
+        auditService.record(order.getAccount().getUser().getEmail(), "ORDER_EXECUTED", "ORDER", order.getId(),
+                "{\"symbol\":\"" + order.getInstrument().getSymbol() + "\",\"side\":\""
+                        + order.getSide() + "\",\"mode\":\"" + order.getTradingMode()
+                        + "\",\"quantity\":" + quantity + "}");
+        if (squareOff) {
+            auditService.record(order.getAccount().getUser().getEmail(), "INTRADAY_SQUARE_OFF", "POSITION",
+                    position.getId(), "{\"orderId\":\"" + order.getId() + "\",\"symbol\":\""
+                            + order.getInstrument().getSymbol() + "\",\"quantity\":" + quantity + "}");
+        }
         return true;
     }
 

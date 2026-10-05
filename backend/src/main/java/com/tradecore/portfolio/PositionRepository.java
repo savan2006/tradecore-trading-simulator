@@ -9,10 +9,24 @@ import org.springframework.data.repository.query.Param;
 import java.util.Optional;
 import java.util.List;
 import java.util.UUID;
+import java.math.BigDecimal;
 
 public interface PositionRepository extends JpaRepository<Position, UUID> {
+    long countByQuantityGreaterThan(long quantity);
     @org.springframework.data.jpa.repository.EntityGraph(attributePaths = "instrument")
     List<Position> findAllByAccount_IdOrderByInstrument_ExchangeAscInstrument_SymbolAscTradingModeAsc(UUID accountId);
+
+    long countByAccount_IdAndQuantityAndRealizedPnlGreaterThan(UUID accountId, long quantity, BigDecimal threshold);
+    long countByAccount_IdAndQuantityAndRealizedPnlLessThan(UUID accountId, long quantity, BigDecimal threshold);
+
+    @org.springframework.data.jpa.repository.EntityGraph(attributePaths = "instrument")
+    java.util.Optional<Position> findFirstByAccount_IdAndQuantityOrderByRealizedPnlDesc(UUID accountId, long quantity);
+
+    @org.springframework.data.jpa.repository.EntityGraph(attributePaths = "instrument")
+    java.util.Optional<Position> findFirstByAccount_IdAndQuantityOrderByRealizedPnlAsc(UUID accountId, long quantity);
+
+    @org.springframework.data.jpa.repository.EntityGraph(attributePaths = "instrument")
+    List<Position> findTop30ByAccount_IdAndQuantityOrderByUpdatedAtDesc(UUID accountId, long quantity);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select p from Position p where p.account.id = :accountId and p.instrument.id = :instrumentId and p.tradingMode = :tradingMode")

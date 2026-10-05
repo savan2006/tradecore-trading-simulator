@@ -2,6 +2,7 @@ package com.tradecore.order;
 
 import com.tradecore.account.TradingAccount;
 import com.tradecore.account.TradingAccountRepository;
+import com.tradecore.audit.AuditService;
 import com.tradecore.idempotency.IdempotencyRecord;
 import com.tradecore.idempotency.IdempotencyRecordRepository;
 import com.tradecore.identity.User;
@@ -46,12 +47,14 @@ public class OrderPlacementService {
     private final OrderEventRepository orderEventRepository;
     private final IdempotencyRecordRepository idempotencyRepository;
     private final MarketHoursPolicy marketHoursPolicy;
+    private final AuditService auditService;
 
     public OrderPlacementService(UserRepository userRepository, TradingAccountRepository accountRepository,
             InstrumentRepository instrumentRepository, MarketQuoteRepository quoteRepository,
             PositionRepository positionRepository, RiskLimitRepository riskLimitRepository,
             TradingOrderRepository orderRepository, OrderEventRepository orderEventRepository,
-            IdempotencyRecordRepository idempotencyRepository, MarketHoursPolicy marketHoursPolicy) {
+            IdempotencyRecordRepository idempotencyRepository, MarketHoursPolicy marketHoursPolicy,
+            AuditService auditService) {
         this.userRepository = userRepository;
         this.accountRepository = accountRepository;
         this.instrumentRepository = instrumentRepository;
@@ -62,6 +65,7 @@ public class OrderPlacementService {
         this.orderEventRepository = orderEventRepository;
         this.idempotencyRepository = idempotencyRepository;
         this.marketHoursPolicy = marketHoursPolicy;
+        this.auditService = auditService;
     }
 
     @Transactional
@@ -151,6 +155,9 @@ public class OrderPlacementService {
             record.complete(order);
             idempotencyRepository.saveAndFlush(record);
         }
+        auditService.record(user.getEmail(), "ORDER_PLACED", "ORDER", order.getId(),
+                "{\"symbol\":\"" + instrument.getSymbol() + "\",\"side\":\"" + side
+                        + "\",\"mode\":\"" + tradingMode + "\",\"quantity\":" + request.quantity() + "}");
         return OrderPlacementResponse.from(order);
     }
 

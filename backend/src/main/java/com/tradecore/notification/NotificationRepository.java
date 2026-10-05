@@ -10,6 +10,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface NotificationRepository extends JpaRepository<Notification, UUID> {
+    long countByReadAtIsNull();
     Page<Notification> findByUser_EmailOrderByCreatedAtDescIdDesc(String email, Pageable pageable);
     Page<Notification> findByUser_EmailAndReadAtIsNullOrderByCreatedAtDescIdDesc(String email, Pageable pageable);
     long countByUser_EmailAndReadAtIsNull(String email);
