@@ -1,44 +1,42 @@
-# TradeCore foundation
+# TradeCore
 
-TradeCore is a virtual trading and portfolio learning platform. This repository currently contains the Phase 1 application foundation only; trading behavior is not implemented yet.
+TradeCore is a student project for learning how a trading platform works. It offers a virtual trading account, market information, and tools for reviewing trading activity. It does not place real trades.
 
-## Requirements
+## Technologies
 
-- JDK 21. The IntelliJ project SDK is `ms-21`; the backend build also targets Java 21.
-- Maven 3.6.3 or later.
-- Node.js 20.9 or later and npm.
-- Neon Cloud PostgreSQL and Redis Cloud accounts for backend runtime.
+- Java 21, Spring Boot, and Maven
+- PostgreSQL for application and trading data
+- Redis for market-data caching and lightweight rate limiting
+- Next.js, React, and TypeScript
+- NSE MCP for market data
 
-On Windows, select the installed JDK 21 in IntelliJ or set `JAVA_HOME` to its JDK directory before running Maven. The backend build fails fast when Maven runs under another Java major version, including Java 25.
+## How it works
 
-## Local configuration
+The backend requests market data through NSE MCP, normalizes it, and persists quotes in PostgreSQL. The app serves persisted quotes to the frontend, with Redis caching and WebSocket updates for market quotes. Quote freshness is shown as live, stale, or unavailable.
 
-From the repository root, copy `.env.example` to `.env`, then replace the placeholders with the Neon application connection details, Redis Cloud connection details, and a unique security password. `.env` is ignored by Git. The backend checks both its working directory and the parent directory for this file, so it works when IntelliJ starts from the repository root or when run from `backend/`. Never commit `.env` or put live credentials in tracked files. PostgreSQL connections require a JDBC URL beginning `jdbc:postgresql://` and TLS (`sslmode=require`); Redis connections use TLS. Docker and locally installed database services are not required. The frontend has a separate optional `frontend/.env.local`; its example only contains the public backend URL.
+Users place paper orders against their virtual account. Orders reserve funds or sellable quantity, then simulated execution updates positions and portfolio values. Users can review orders, trades, P&L, watchlists, price alerts, notifications, risk settings, and performance, and keep journal notes on completed trades.
 
-## Backend
+TradeCore includes a supported learning universe of 80 NSE companies, with company profiles available alongside market information. Admin-only operational pages and audit logs are also included.
 
-From `backend/`, run with JDK 21 and Maven installed:
+## Run locally
+
+Set up the environment from the repository root using `.env.example` and fill in the PostgreSQL and Redis connection values required by the backend. Do not commit `.env` or real credentials.
+
+Start the backend from `backend/` with Java 21 and Maven:
 
 ```powershell
 mvn spring-boot:run
 ```
 
-The public health endpoints are `/actuator/health`, `/actuator/health/liveness`, and `/actuator/health/readiness`. Readiness includes PostgreSQL and Redis. Other API paths require HTTP Basic credentials from `TRADECORE_SECURITY_USER` and `TRADECORE_SECURITY_PASSWORD`. The in-memory user is foundation-only and must be replaced by the application authentication module in a later phase.
-
-## Frontend
-
-From `frontend/`:
+Start the frontend from `frontend/`:
 
 ```powershell
-Copy-Item .env.example .env.local
 npm install
 npm run dev
 ```
 
-The frontend uses Next.js App Router server components. `NEXT_PUBLIC_API_BASE_URL` is reserved for the later frontend/backend integration.
+The frontend API proxy uses `http://localhost:8080` by default; `TRADECORE_BACKEND_URL` can point it at another backend URL.
 
-## Foundation scope
+## Project status
 
-Included: Java 21/Spring Boot/Maven, Next.js, cloud PostgreSQL and Redis connection configuration, environment-based secrets, HTTP security baseline, and liveness/readiness health reporting.
-
-Not included: orders, executions, positions, P&L, ledger, risk rules, market-data integration, WebSocket business events, watchlists, notifications, or admin business features.
+The main backend and frontend learning workflows are implemented and the project is still under development. Trading is simulated with virtual funds; this is not a brokerage or real-money trading system.
