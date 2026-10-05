@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { LoginForm } from "@/components/login-form";
 
@@ -11,6 +13,7 @@ const links = [
   ["Portfolio", "/portfolio"],
   ["Orders", "/orders"],
   ["Watchlists", "/watchlists"],
+  ["Notifications", "/notifications"],
 ] as const;
 
 export function AppShell({ children }: Readonly<{ children: React.ReactNode }>) {
@@ -18,6 +21,27 @@ export function AppShell({ children }: Readonly<{ children: React.ReactNode }>) 
   const pathname = usePathname();
   const router = useRouter();
   const isLogin = pathname === "/login";
+  const [unreadCount, setUnreadCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!session) {
+      setUnreadCount(null);
+      return;
+    }
+    const controller = new AbortController();
+    api.unreadNotificationCount(session.basicCredential, controller.signal)
+      .then((result) => setUnreadCount(result.unreadCount))
+      .catch(() => { if (!controller.signal.aborted) setUnreadCount(null); });
+    const updateCount = (event: Event) => {
+      const count = (event as CustomEvent<number>).detail;
+      if (Number.isFinite(count) && count >= 0) setUnreadCount(count);
+    };
+    window.addEventListener("tradecore:unread-count-updated", updateCount);
+    return () => {
+      controller.abort();
+      window.removeEventListener("tradecore:unread-count-updated", updateCount);
+    };
+  }, [session]);
 
   return (
     <div className="app-frame">
@@ -25,7 +49,9 @@ export function AppShell({ children }: Readonly<{ children: React.ReactNode }>) 
         <Link className="wordmark" href="/" aria-label="TradeCore dashboard">TradeCore<span className="brand-dot">.</span></Link>
         <nav className="top-nav" aria-label="Main navigation">
           {links.map(([label, href]) => (
-            <Link key={href} href={href} className={pathname === href ? "nav-link active" : "nav-link"}>{label}</Link>
+            <Link key={href} href={href} className={pathname === href ? "nav-link active" : "nav-link"}>
+              {label}{href === "/notifications" && unreadCount != null && unreadCount > 0 && <span className="nav-unread-count" aria-label={`${unreadCount} unread notifications`}>{unreadCount > 99 ? "99+" : unreadCount}</span>}
+            </Link>
           ))}
         </nav>
         <div className="session-tools">

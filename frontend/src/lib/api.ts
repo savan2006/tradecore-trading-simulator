@@ -136,12 +136,39 @@ export type Watchlist = {
   items: { id: string; symbol: string; exchange: string; companyName: string; quote: Quote | null }[];
 };
 
+export type PriceAlert = {
+  id: string;
+  watchlistId: string;
+  instrumentId: string;
+  symbol: string;
+  exchange: string;
+  condition: "ABOVE" | "BELOW" | string;
+  targetPrice: number;
+  active: boolean;
+  createdAt: string;
+  triggeredAt: string | null;
+};
+
+export type UnreadNotificationCount = { unreadCount: number };
+export type NotificationItem = {
+  id: string;
+  notificationType: string;
+  title: string;
+  message: string;
+  createdAt: string;
+  readAt: string | null;
+};
+export type NotificationPage = { items: NotificationItem[]; page: number; size: number; totalElements: number; totalPages: number };
+export type ReadAllNotificationsResult = { updatedCount: number };
+
 export type DashboardData = {
   instruments: Instrument[] | null;
   marketQuotes: Quote[] | null;
   portfolio: Portfolio | null;
   orders: OrderPage | null;
   watchlists: Watchlist[] | null;
+  unreadNotifications: UnreadNotificationCount | null;
+  errors: Partial<Record<"instruments" | "marketQuotes" | "portfolio" | "orders" | "watchlists" | "unreadNotifications", string>>;
 };
 
 async function request<T>(path: string, basicCredential: string, signal?: AbortSignal): Promise<T> {
@@ -178,6 +205,30 @@ async function mutate<T>(path: string, basicCredential: string): Promise<T> {
     error.status = response.status;
     throw error;
   }
+  return response.json() as Promise<T>;
+}
+
+async function write<T>(method: "POST" | "PUT" | "DELETE", path: string, basicCredential: string, body?: unknown): Promise<T> {
+  const response = await fetch(`/api/backend${path}`, {
+    method,
+    headers: {
+      Authorization: `Basic ${basicCredential}`,
+      Accept: "application/json",
+      ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+    },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null) as { detail?: string; message?: string; title?: string; error?: string } | null;
+    const fallback = response.status === 401
+      ? "Your session is not authorized. Please sign in again."
+      : payload?.error ? `${payload.error} (HTTP ${response.status})` : `Request failed (${response.status}).`;
+    const error = new Error(payload?.detail ?? payload?.message ?? payload?.title ?? fallback) as ApiError;
+    error.status = response.status;
+    throw error;
+  }
+  if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
 }
 
@@ -231,6 +282,32 @@ export const api = {
     mutate<Cancellation>(`/api/v1/orders/${encodeURIComponent(orderId)}/cancel`, basic),
   placeOrder: placeOrderRequest,
   watchlists: (basic: string, signal?: AbortSignal) => request<Watchlist[]>("/api/v1/watchlists", basic, signal),
+  createWatchlist: (basic: string, name: string) => write<Watchlist>("POST", "/api/v1/watchlists", basic, { name }),
+  renameWatchlist: (basic: string, id: string, name: string) =>
+    write<Watchlist>("PUT", `/api/v1/watchlists/${encodeURIComponent(id)}`, basic, { name }),
+  deleteWatchlist: (basic: string, id: string) => write<void>("DELETE", `/api/v1/watchlists/${encodeURIComponent(id)}`, basic),
+  addWatchlistItem: (basic: string, id: string, exchange: string, symbol: string) =>
+    write<Watchlist>("POST", `/api/v1/watchlists/${encodeURIComponent(id)}/items`, basic, { exchange, symbol }),
+  removeWatchlistItem: (basic: string, id: string, symbol: string) =>
+    write<void>("DELETE", `/api/v1/watchlists/${encodeURIComponent(id)}/items/${encodeURIComponent(symbol)}`, basic),
+  priceAlerts: (basic: string, signal?: AbortSignal) => request<PriceAlert[]>("/api/v1/alerts", basic, signal),
+  createPriceAlert: (basic: string, input: { watchlistId: string; instrumentId: string; condition: "ABOVE" | "BELOW"; targetPrice: number }) =>
+    write<PriceAlert>("POST", "/api/v1/alerts", basic, input),
+  deletePriceAlert: (basic: string, id: string) => write<void>("DELETE", `/api/v1/alerts/${encodeURIComponent(id)}`, basic),
+  unreadNotificationCount: (basic: string, signal?: AbortSignal) =>
+    request<UnreadNotificationCount>("/api/v1/notifications/unread-count", basic, signal),
+  notifications: (basic: string, options: { page?: number; size?: number; unreadOnly?: boolean } = {}, signal?: AbortSignal) => {
+    const params = new URLSearchParams({
+      page: String(Math.max(0, Math.floor(options.page ?? 0))),
+      size: String(Math.min(100, Math.max(1, Math.floor(options.size ?? 20)))),
+      unreadOnly: String(options.unreadOnly ?? false),
+    });
+    return request<NotificationPage>(`/api/v1/notifications?${params.toString()}`, basic, signal);
+  },
+  markNotificationRead: (basic: string, id: string) =>
+    write<NotificationItem>("POST", `/api/v1/notifications/${encodeURIComponent(id)}/read`, basic),
+  markAllNotificationsRead: (basic: string) =>
+    write<ReadAllNotificationsResult>("POST", "/api/v1/notifications/read-all", basic),
 };
 
 export async function loadDashboard(basic: string, signal: AbortSignal): Promise<DashboardData> {
@@ -240,13 +317,27 @@ export async function loadDashboard(basic: string, signal: AbortSignal): Promise
     api.portfolio(basic, signal),
     api.orders(basic, { page: 0, size: 5 }, signal),
     api.watchlists(basic, signal),
+    api.unreadNotificationCount(basic, signal),
   ]);
+  const valueOrNull = <T,>(index: number) => results[index].status === "fulfilled" ? results[index].value as T : null;
+  const errorOrUndefined = (index: number) => results[index].status === "rejected"
+    ? results[index].reason instanceof Error ? results[index].reason.message : "The request could not be completed."
+    : undefined;
   return {
-    instruments: results[0].status === "fulfilled" ? results[0].value : null,
-    marketQuotes: results[1].status === "fulfilled" ? results[1].value : null,
-    portfolio: results[2].status === "fulfilled" ? results[2].value : null,
-    orders: results[3].status === "fulfilled" ? results[3].value : null,
-    watchlists: results[4].status === "fulfilled" ? results[4].value : null,
+    instruments: valueOrNull<Instrument[]>(0),
+    marketQuotes: valueOrNull<Quote[]>(1),
+    portfolio: valueOrNull<Portfolio>(2),
+    orders: valueOrNull<OrderPage>(3),
+    watchlists: valueOrNull<Watchlist[]>(4),
+    unreadNotifications: valueOrNull<UnreadNotificationCount>(5),
+    errors: {
+      instruments: errorOrUndefined(0),
+      marketQuotes: errorOrUndefined(1),
+      portfolio: errorOrUndefined(2),
+      orders: errorOrUndefined(3),
+      watchlists: errorOrUndefined(4),
+      unreadNotifications: errorOrUndefined(5),
+    },
   };
 }
 

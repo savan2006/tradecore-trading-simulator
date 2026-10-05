@@ -11,6 +11,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -18,9 +19,13 @@ import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Service
 public class MarketDataIngestionService {
+
+    private static final Logger log = LoggerFactory.getLogger(MarketDataIngestionService.class);
 
     private static final String EXCHANGE = "NSE";
     private static final String EQUITY = "EQUITY";
@@ -33,6 +38,8 @@ public class MarketDataIngestionService {
     private final InstrumentRepository instrumentRepository;
     private final MarketQuoteRepository quoteRepository;
     private final MarketCandleRepository candleRepository;
+    private final MarketDataQueryService queryService;
+    private final MarketQuoteWebSocketHandler quoteStream;
     private final TransactionTemplate transactionTemplate;
 
     public MarketDataIngestionService(
@@ -40,11 +47,15 @@ public class MarketDataIngestionService {
             InstrumentRepository instrumentRepository,
             MarketQuoteRepository quoteRepository,
             MarketCandleRepository candleRepository,
+            MarketDataQueryService queryService,
+            MarketQuoteWebSocketHandler quoteStream,
             PlatformTransactionManager transactionManager) {
         this.provider = provider;
         this.instrumentRepository = instrumentRepository;
         this.quoteRepository = quoteRepository;
         this.candleRepository = candleRepository;
+        this.queryService = queryService;
+        this.quoteStream = quoteStream;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
     }
 
@@ -63,8 +74,9 @@ public class MarketDataIngestionService {
         validateFreshness(freshness);
         Map<String, MarketQuoteSnapshot> quotesBySymbol = validateQuotes(selected, quotes);
         Instant ingestedAt = Instant.now();
+        List<String> changedSymbols = new ArrayList<>();
 
-        return transactionTemplate.execute(status -> {
+        MarketDataIngestionResult result = transactionTemplate.execute(status -> {
             int inserted = 0;
             int updated = 0;
             int stale = 0;
@@ -77,16 +89,47 @@ public class MarketDataIngestionService {
                 Instrument managedInstrument = instrumentRepository.getReferenceById(instrument.getId());
                 var existing = quoteRepository.findByInstrument_Id(instrument.getId());
                 if (existing.isPresent()) {
-                    existing.get().updateFrom(quote, ingestedAt, UNKNOWN_MARKET_STATUS, dataStatus);
+                    MarketQuote current = existing.get();
+                    boolean changed = quoteChanged(current, quote, UNKNOWN_MARKET_STATUS, dataStatus);
+                    current.updateFrom(quote, ingestedAt, UNKNOWN_MARKET_STATUS, dataStatus);
+                    if (changed) changedSymbols.add(instrument.getSymbol());
                     updated++;
                 } else {
                     quoteRepository.save(new MarketQuote(
                             managedInstrument, quote, ingestedAt, UNKNOWN_MARKET_STATUS, dataStatus));
+                    changedSymbols.add(instrument.getSymbol());
                     inserted++;
                 }
             }
             return new MarketDataIngestionResult(quotes.size(), inserted, updated, 0, stale);
         });
+        for (String symbol : changedSymbols) {
+            try {
+                quoteStream.publish(queryService.getQuote(EXCHANGE, symbol));
+            } catch (RuntimeException publishFailure) {
+                // Persistence has committed; a WebSocket/read failure must not change ingestion outcome.
+                log.warn("Could not publish persisted quote update for {}", symbol, publishFailure);
+            }
+        }
+        return result;
+    }
+
+    private static boolean quoteChanged(MarketQuote current, MarketQuoteSnapshot next,
+            String marketStatus, String dataStatus) {
+        return !sameDecimal(current.getLastPrice(), next.lastPrice())
+                || !sameDecimal(current.getPreviousClose(), next.previousClose())
+                || !sameDecimal(current.getOpenPrice(), next.open())
+                || !sameDecimal(current.getHighPrice(), next.high())
+                || !sameDecimal(current.getLowPrice(), next.low())
+                || !Objects.equals(current.getVolume(), next.volume())
+                || !Objects.equals(current.getMarketAt(), next.tradingTimestamp())
+                || !Objects.equals(current.getProviderUpdatedAt(), next.dataUpdatedAt())
+                || !Objects.equals(current.getMarketStatus(), marketStatus)
+                || !Objects.equals(current.getDataStatus(), dataStatus);
+    }
+
+    private static boolean sameDecimal(BigDecimal current, BigDecimal next) {
+        return current == null ? next == null : next != null && current.compareTo(next) == 0;
     }
 
     /** Ingests one bounded month of daily candles for all approved NSE equities or the requested subset. */
