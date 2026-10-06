@@ -181,6 +181,19 @@ td small { margin-top: 4px; }
 .performance-value dt { color: var(--muted); font-size: 11px; }
 .performance-value dd { margin: 0; font-size: 13px; font-weight: 650; overflow-wrap: anywhere; }
 .performance-chart-panel .chart-wrap { margin: 12px 0; }
+
+.strategy-disclaimer { margin-bottom: 18px; }
+.strategy-form { margin-bottom: 20px; }
+.strategy-form-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-bottom: 16px; }
+.strategy-form label { display: flex; flex-direction: column; gap: 7px; color: var(--muted); font-size: 12px; }
+.strategy-form input, .strategy-form select { width: 100%; min-height: 42px; padding: 9px 11px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink); background: var(--surface); font: inherit; }
+.strategy-form .button-primary { margin-top: 15px; }
+.strategy-error { margin: 14px 0; }
+.strategy-results > .panel { margin: 18px 0; }
+.strategy-metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.strategy-equity-chart { margin: 12px 0; }
+.strategy-trades { margin-top: 18px; }
+.strategy-trades th, .strategy-trades td { padding: 11px 10px; }
 .period-change { margin: 13px 0 0; color: var(--muted); font-size: 11px; }
 .period-change strong { color: var(--ink); }
 .learning-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
@@ -315,6 +328,8 @@ td small { margin-top: 4px; }
   .nav-link { padding: 9px 10px; font-size: 12px; }
   .session-email { display: none; }
   .metric-grid, .portfolio-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .strategy-form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .strategy-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .dashboard-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
   .dashboard-action { min-height: 70px; padding: 11px; }
   .metric-card { min-height: 105px; padding: 13px; }
@@ -330,6 +345,7 @@ td small { margin-top: 4px; }
   .order-filters { align-items: stretch; }
   .footer { gap: 12px; font-size: 10px; }
   .panel { padding: 16px; }
+  .strategy-form-grid { grid-template-columns: 1fr; }
   .login-card { padding: 23px; }
   .order-form { grid-template-columns: 1fr; }
   .order-filters { display: grid; grid-template-columns: 1fr; }

@@ -44,6 +44,51 @@ export type Candle = {
   volume: number;
 };
 
+export type StrategyBacktestRequest = {
+  symbol: string;
+  fromDate: string;
+  toDate: string;
+  strategy: "SIMPLE_MOVING_AVERAGE_CROSSOVER" | "RSI_MEAN_REVERSION";
+  startingCapital: number;
+  fastPeriod?: number;
+  slowPeriod?: number;
+  rsiPeriod?: number;
+  oversoldThreshold?: number;
+  overboughtThreshold?: number;
+};
+
+export type StrategyBacktest = {
+  strategy: StrategyBacktestRequest["strategy"];
+  symbol: string;
+  fromDate: string;
+  toDate: string;
+  startingCapital: number;
+  endingCapital: number;
+  totalReturnPercent: number;
+  realizedPnl: number;
+  numberOfTrades: number;
+  winningTrades: number;
+  losingTrades: number;
+  winRatePercent: number;
+  averageWinningTrade: number | null;
+  averageLosingTrade: number | null;
+  maximumDrawdownPercent: number;
+  buyAndHoldReturnPercent: number;
+  equityCurve: { date: string; equity: number }[];
+  simulatedTrades: {
+    entryDate: string;
+    entryPrice: number;
+    exitDate: string | null;
+    exitPrice: number | null;
+    quantity: number;
+    investedAmount: number;
+    realizedResult: number | null;
+    status: "OPEN" | "CLOSED";
+  }[];
+  executionConvention: string;
+  costTreatment: string;
+};
+
 export type PriceChange = { absolute: number; percent: number } | null;
 
 export type CompanyOverview = {
@@ -93,6 +138,7 @@ export type Order = {
   executedQuantity: number;
   remainingQuantity: number;
   limitPrice: number | null;
+  triggerPrice: number | null;
   status: string;
   createdAt: string;
   updatedAt: string;
@@ -134,10 +180,11 @@ export type PlaceOrderRequest = {
   exchange: string;
   symbol: string;
   side: "BUY" | "SELL";
-  orderType: "MARKET" | "LIMIT";
+  orderType: "MARKET" | "LIMIT" | "STOP_MARKET";
   tradingMode: "DELIVERY" | "INTRADAY";
   quantity: number;
   limitPrice?: number;
+  triggerPrice?: number;
 };
 export type PlacedOrder = PlaceOrderRequest & {
   orderId: string;
@@ -186,6 +233,32 @@ export type RiskLimit = {
   symbol: string | null;
   currentUsage: number | null;
   remainingValue: number | null;
+  effectiveFrom: string | null;
+  effectiveUntil: string | null;
+};
+export type AdminRiskLimit = {
+  id: string;
+  accountId: string | null;
+  accountEmail: string | null;
+  scope: "GLOBAL" | "ACCOUNT" | "INSTRUMENT" | string;
+  limitType: string;
+  configuredValue: number;
+  exchange: string | null;
+  symbol: string | null;
+  enabled: boolean;
+  effectiveNow: boolean;
+  effectiveFrom: string | null;
+  effectiveUntil: string | null;
+  createdAt: string;
+};
+export type AdminRiskLimitRequest = {
+  scope: "GLOBAL" | "ACCOUNT" | "INSTRUMENT";
+  limitType: string;
+  accountId: string | null;
+  exchange: string | null;
+  symbol: string | null;
+  configuredValue: number;
+  enabled: boolean;
   effectiveFrom: string | null;
   effectiveUntil: string | null;
 };
@@ -404,7 +477,7 @@ async function placeOrderRequest(basicCredential: string, body: PlaceOrderReques
   if (!response.ok) {
     const payload = await response.json().catch(() => null) as { detail?: string; message?: string; title?: string; error?: string } | null;
     const fallback = response.status === 400
-      ? "Order rejected as invalid. Check side, order type, trading mode, positive whole-number quantity, and LIMIT price."
+      ? "Order rejected as invalid. Check side, order type, trading mode, positive whole-number quantity, and required order prices."
       : payload?.error
         ? `${payload.error} (HTTP ${response.status})`
         : `Order request failed (${response.status}).`;
@@ -420,6 +493,8 @@ export const api = {
   verifyLogin: (basic: string, signal?: AbortSignal) =>
     request<Instrument[]>("/api/v1/market/instruments?query=TCS", basic, signal),
   instruments: (basic: string, signal?: AbortSignal) => request<Instrument[]>("/api/v1/market/instruments", basic, signal),
+  strategyBacktest: (basic: string, input: StrategyBacktestRequest) =>
+    write<StrategyBacktest>("POST", "/api/v1/strategy-lab/backtests", basic, input),
   quotes: (basic: string, symbols: string[], signal?: AbortSignal) =>
     request<Quote[]>(`/api/v1/market/quotes?${symbols.map((symbol) => `symbols=${encodeURIComponent(symbol)}`).join("&")}`, basic, signal),
   learningProfiles: (basic: string, signal?: AbortSignal) =>
@@ -514,6 +589,16 @@ export const api = {
     if (options.to) params.set("to", options.to);
     return request<AdminAuditLogPage>(`/api/v1/admin/audit-logs?${params.toString()}`, basic, signal);
   },
+  adminRiskLimits: (basic: string, signal?: AbortSignal) =>
+    request<AdminRiskLimit[]>("/api/v1/admin/risk-limits", basic, signal),
+  createAdminRiskLimit: (basic: string, body: AdminRiskLimitRequest) =>
+    write<AdminRiskLimit>("POST", "/api/v1/admin/risk-limits", basic, body),
+  updateAdminRiskLimit: (basic: string, id: string, body: AdminRiskLimitRequest) =>
+    write<AdminRiskLimit>("PUT", `/api/v1/admin/risk-limits/${encodeURIComponent(id)}`, basic, body),
+  activateAdminRiskLimit: (basic: string, id: string) =>
+    write<AdminRiskLimit>("POST", `/api/v1/admin/risk-limits/${encodeURIComponent(id)}/activate`, basic),
+  deactivateAdminRiskLimit: (basic: string, id: string) =>
+    write<AdminRiskLimit>("POST", `/api/v1/admin/risk-limits/${encodeURIComponent(id)}/deactivate`, basic),
   riskMe: (basic: string, signal?: AbortSignal) =>
     request<RiskLimit[]>("/api/v1/risk/me", basic, signal),
   performanceMe: (basic: string, signal?: AbortSignal) =>

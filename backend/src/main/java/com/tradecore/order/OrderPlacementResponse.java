@@ -17,6 +17,7 @@ public record OrderPlacementResponse(
         long executedQuantity,
         long remainingQuantity,
         BigDecimal limitPrice,
+        BigDecimal triggerPrice,
         String status,
         Instant createdAt) {
 
@@ -25,6 +26,7 @@ public record OrderPlacementResponse(
                 order.getInstrument().getId(), order.getInstrument().getSymbol(),
                 order.getInstrument().getExchange(), order.getSide(), order.getOrderType(),
                 order.getTradingMode(), order.getRequestedQuantity(), order.getExecutedQuantity(),
-                order.getRemainingQuantity(), order.getLimitPrice(), order.getStatus(), order.getCreatedAt());
+                order.getRemainingQuantity(), order.getLimitPrice(), order.getTriggerPrice(),
+                order.getStatus(), order.getCreatedAt());
     }
 }

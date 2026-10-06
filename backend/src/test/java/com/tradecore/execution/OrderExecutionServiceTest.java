@@ -7,6 +7,7 @@ import com.tradecore.identity.UserRegistrationService;
 import com.tradecore.market.MarketHoursPolicy;
 import com.tradecore.order.OrderPlacementRequest;
 import com.tradecore.order.OrderPlacementService;
+import com.tradecore.order.OrderCancellationService;
 import com.tradecore.order.TradingOrderRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -14,6 +15,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
 import java.sql.Timestamp;
@@ -41,6 +43,7 @@ class OrderExecutionServiceTest {
     @Autowired private UserRegistrationService registration;
     @Autowired private OrderPlacementService placement;
     @Autowired private OrderExecutionService execution;
+    @Autowired private OrderCancellationService cancellation;
     @Autowired private TradingOrderRepository orders;
     @MockitoSpyBean private MarketHoursPolicy marketHours;
     @MockitoSpyBean private com.tradecore.ledger.LedgerEntryRepository ledger;
@@ -107,6 +110,109 @@ class OrderExecutionServiceTest {
         UUID noOrder = place(no, "SELL", "LIMIT", 1, "100");
         assertThat(execution.executePending(noOrder)).isFalse();
         assertPending(noOrder);
+    }
+
+    @Test
+    void buyStopRemainsPendingBeforeTriggerAndExecutesAtTheCurrentAskAfterTrigger() {
+        Account user = account();
+        UUID order = placeStop(user, "BUY", 2, "105");
+
+        assertThat(jdbc.queryForObject("select trigger_price from trading_order where id=?", BigDecimal.class, order))
+                .isEqualByComparingTo("105");
+        assertThat(jdbc.queryForObject("select reserved_amount from trading_order where id=?", BigDecimal.class, order))
+                .isEqualByComparingTo("210.0000");
+        assertThat(execution.executePending(order)).isFalse();
+        assertPending(order);
+        assertThat(jdbc.queryForObject("select count(*) from order_event where order_id=?", Integer.class, order)).isEqualTo(1);
+        assertBalance(user.account, "99790.0000", "210.0000");
+
+        putQuote("108", "110", "107", Instant.now().minusSeconds(1), "OPEN");
+        assertThat(execution.executePending(order)).isTrue();
+        assertThat(jdbc.queryForObject("select price from execution where order_id=?", BigDecimal.class, order))
+                .isEqualByComparingTo("110");
+        assertBalance(user.account, "99780.0000", "0.0000");
+        assertThat(jdbc.queryForObject("select status from trading_order where id=?", String.class, order)).isEqualTo("FILLED");
+        assertEvent(order);
+    }
+
+    @Test
+    void sellStopRemainsPendingAboveTriggerThenExecutesAtTheCurrentBid() {
+        Account user = account();
+        seedPosition(user.account, 3, 0, "100");
+        UUID order = placeStop(user, "SELL", 1, "97");
+
+        assertThat(execution.executePending(order)).isFalse();
+        assertPending(order);
+        assertThat(jdbc.queryForObject("select reserved_quantity from position where account_id=?", Long.class, user.account))
+                .isEqualTo(1L);
+
+        putQuote("96", "97", "95", Instant.now().minusSeconds(1), "OPEN");
+        assertThat(execution.executePending(order)).isTrue();
+        assertThat(jdbc.queryForObject("select price from execution where order_id=?", BigDecimal.class, order))
+                .isEqualByComparingTo("95");
+        assertThat(jdbc.queryForObject("select quantity from position where account_id=?", Long.class, user.account))
+                .isEqualTo(2L);
+        assertThat(jdbc.queryForObject("select reserved_quantity from position where account_id=?", Long.class, user.account))
+                .isZero();
+    }
+
+    @Test
+    void stopRequiresFreshEligibleQuoteAndKeepsFundsReservedWhenGapExceedsAvailableTopUp() {
+        Account stale = account();
+        UUID staleOrder = placeStop(stale, "BUY", 1, "105");
+        putQuote("110", "111", "109", Instant.now().minusSeconds(601), "OPEN");
+        assertThat(execution.executePending(staleOrder)).isFalse();
+        assertPending(staleOrder);
+        putQuote("110", "111", "109", Instant.now().minusSeconds(1), "OPEN");
+        Account missing = account();
+        UUID missingOrder = placeStop(missing, "BUY", 1, "105");
+        jdbc.update("delete from market_quote where instrument_id=?", instrumentId);
+        assertThat(execution.executePending(missingOrder)).isFalse();
+        assertPending(missingOrder);
+
+        putQuote("100", "101", "99", Instant.now().minusSeconds(1), "OPEN");
+        Account gap = account();
+        UUID gapOrder = placeStop(gap, "BUY", 1, "50000");
+        putQuote("160000", "160001", "159999", Instant.now().minusSeconds(1), "OPEN");
+        assertThat(execution.executePending(gapOrder)).isFalse();
+        assertPending(gapOrder);
+        assertBalance(gap.account, "50000.0000", "50000.0000");
+        assertThat(jdbc.queryForObject("select count(*) from position where account_id=?", Integer.class, gap.account)).isZero();
+    }
+
+    @Test
+    void stopCancellationReleasesReservationOnceAndRacesWithExecutionSafely() throws Exception {
+        Account cancelledUser = account();
+        UUID cancelledOrder = placeStop(cancelledUser, "BUY", 2, "105");
+        var cancelled = cancellation.cancel(email(cancelledUser.account), cancelledOrder);
+        assertThat(cancelled.status()).isEqualTo("CANCELLED");
+        assertThat(cancelled.releasedFunds()).isEqualByComparingTo("210.0000");
+        assertBalance(cancelledUser.account, "100000.0000", "0.0000");
+        assertThat(cancellation.cancel(email(cancelledUser.account), cancelledOrder).releasedFunds())
+                .isEqualByComparingTo("0.0000");
+
+        Account raceUser = account();
+        UUID raceOrder = placeStop(raceUser, "BUY", 1, "100");
+        var pool = Executors.newFixedThreadPool(2);
+        CountDownLatch start = new CountDownLatch(1);
+        try {
+            var execute = pool.submit(() -> { start.await(); return execution.executePending(raceOrder); });
+            var cancel = pool.submit(() -> {
+                start.await();
+                try {
+                    cancellation.cancel(email(raceUser.account), raceOrder);
+                    return true;
+                } catch (ResponseStatusException alreadyExecuted) {
+                    return false;
+                }
+            });
+            start.countDown();
+            boolean executed = execute.get(10, TimeUnit.SECONDS);
+            boolean cancelledInRace = cancel.get(10, TimeUnit.SECONDS);
+            assertThat((executed ? 1 : 0) + (cancelledInRace ? 1 : 0)).isEqualTo(1);
+        } finally { pool.shutdownNow(); }
+        assertThat(jdbc.queryForObject("select count(*) from execution where order_id=?", Integer.class, raceOrder))
+                .isEqualTo(jdbc.queryForObject("select status from trading_order where id=?", String.class, raceOrder).equals("FILLED") ? 1 : 0);
     }
 
     @Test
@@ -253,6 +359,16 @@ class OrderExecutionServiceTest {
                 new OrderPlacementRequest("NSE", "TCS", side, type, "DELIVERY", quantity,
                         limit == null ? null : new BigDecimal(limit)), null);
         return response.orderId();
+    }
+    private UUID placeStop(Account user, String side, long quantity, String trigger) {
+        var response = placement.placeOrder(email(user.account),
+                new OrderPlacementRequest("NSE", "TCS", side, "STOP_MARKET", "DELIVERY", quantity,
+                        null, new BigDecimal(trigger)), null);
+        return response.orderId();
+    }
+    private String email(UUID account) {
+        return jdbc.queryForObject("select email from app_user where id=(select user_id from trading_account where id=?)",
+                String.class, account);
     }
     private void putQuote(String last, String ask, String bid, Instant updated, String status) {
         jdbc.update("delete from market_quote where instrument_id=?", instrumentId);

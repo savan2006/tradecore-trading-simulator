@@ -25,6 +25,7 @@ public class TradingOrder {
     @Column(name = "executed_quantity", nullable = false) private long executedQuantity;
     @Column(name = "remaining_quantity", nullable = false) private long remainingQuantity;
     @Column(name = "limit_price", precision = 19, scale = 6) private BigDecimal limitPrice;
+    @Column(name = "trigger_price", precision = 19, scale = 6) private BigDecimal triggerPrice;
     @Column(name = "reserved_amount", nullable = false, precision = 19, scale = 4) private BigDecimal reservedAmount;
     @Column(nullable = false, length = 24) private String status;
     @Column(name = "created_at", nullable = false) private Instant createdAt;
@@ -33,7 +34,8 @@ public class TradingOrder {
     protected TradingOrder() {}
 
     public TradingOrder(TradingAccount account, Instrument instrument, String side, String orderType,
-            String tradingMode, long quantity, BigDecimal limitPrice, BigDecimal reservedAmount, Instant now) {
+            String tradingMode, long quantity, BigDecimal limitPrice, BigDecimal triggerPrice,
+            BigDecimal reservedAmount, Instant now) {
         this.account = account;
         this.instrument = instrument;
         this.side = side;
@@ -43,10 +45,16 @@ public class TradingOrder {
         this.executedQuantity = 0;
         this.remainingQuantity = quantity;
         this.limitPrice = limitPrice;
+        this.triggerPrice = triggerPrice;
         this.reservedAmount = reservedAmount == null ? BigDecimal.ZERO.setScale(4) : reservedAmount;
         this.status = "PENDING";
         this.createdAt = now;
         this.updatedAt = now;
+    }
+
+    public TradingOrder(TradingAccount account, Instrument instrument, String side, String orderType,
+            String tradingMode, long quantity, BigDecimal limitPrice, BigDecimal reservedAmount, Instant now) {
+        this(account, instrument, side, orderType, tradingMode, quantity, limitPrice, null, reservedAmount, now);
     }
 
     public UUID getId() { return id; }
@@ -59,6 +67,7 @@ public class TradingOrder {
     public long getExecutedQuantity() { return executedQuantity; }
     public long getRemainingQuantity() { return remainingQuantity; }
     public BigDecimal getLimitPrice() { return limitPrice; }
+    public BigDecimal getTriggerPrice() { return triggerPrice; }
     public BigDecimal getReservedAmount() { return reservedAmount; }
     public String getStatus() { return status; }
     public Instant getCreatedAt() { return createdAt; }

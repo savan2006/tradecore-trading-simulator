@@ -10,6 +10,7 @@ import { LoginForm } from "@/components/login-form";
 const links = [
   ["Dashboard", "/"],
   ["Markets", "/markets"],
+  ["Strategy Lab", "/strategy-lab"],
   ["Portfolio", "/portfolio"],
   ["Performance", "/performance"],
   ["Risk", "/risk"],
@@ -58,6 +59,7 @@ export function AppShell({ children }: Readonly<{ children: React.ReactNode }>) 
             </Link>
           ))}
           {session && adminAccess === "allowed" && <Link href="/admin" className={pathname === "/admin" ? "nav-link active" : "nav-link"}>Admin</Link>}
+          {session && adminAccess === "allowed" && <Link href="/admin/risk-limits" className={pathname === "/admin/risk-limits" ? "nav-link active" : "nav-link"}>Risk limits</Link>}
           {session && adminAccess === "allowed" && <Link href="/admin/audit-logs" className={pathname === "/admin/audit-logs" ? "nav-link active" : "nav-link"}>Audit logs</Link>}
         </nav>
         <div className="session-tools">

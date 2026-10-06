@@ -5,6 +5,7 @@ import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -22,7 +23,9 @@ import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.Base64;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -75,6 +78,47 @@ class AdminOperationsApiTest {
                 .andExpect(status().isForbidden());
         mvc.perform(get("/api/v1/admin/overview").header("Authorization", basic(adminEmail)))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    void historicalBackfillIsAdminOnlyAndDoesNotChangeFinancialTables() throws Exception {
+        String endpoint = "/api/v1/admin/market-data/backfill";
+        mvc.perform(post(endpoint).contentType("application/json").content("{\"months\":1,\"symbols\":[\"TCS\"]}"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(post(endpoint).header("Authorization", basic(normalEmail)).contentType("application/json")
+                        .content("{\"months\":1,\"symbols\":[\"TCS\"]}"))
+                .andExpect(status().isForbidden());
+
+        doReturn(java.util.List.of()).when(provider)
+                .getHistoricalCandles(org.mockito.ArgumentMatchers.eq("TCS"), org.mockito.ArgumentMatchers.eq(1),
+                        org.mockito.ArgumentMatchers.any(LocalDate.class));
+        Map<String, java.util.List<Map<String, Object>>> before = financialSnapshot();
+        String jobId = mvc.perform(post(endpoint).header("Authorization", basic(adminEmail))
+                        .contentType("application/json").content("{\"months\":1,\"symbols\":[\"TCS\"]}"))
+                .andExpect(status().isAccepted()).andExpect(jsonPath("$.state").value(org.hamcrest.Matchers.anyOf(
+                        org.hamcrest.Matchers.is("QUEUED"), org.hamcrest.Matchers.is("RUNNING"), org.hamcrest.Matchers.is("COMPLETED"))))
+                .andReturn().getResponse().getContentAsString();
+        String id = new com.fasterxml.jackson.databind.ObjectMapper().readTree(jobId).get("jobId").asText();
+        String state = "QUEUED";
+        for (int attempt = 0; attempt < 100 && ("QUEUED".equals(state) || "RUNNING".equals(state)); attempt++) {
+            String response = mvc.perform(get(endpoint).header("Authorization", basic(adminEmail)))
+                    .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+            var status = new com.fasterxml.jackson.databind.ObjectMapper().readTree(response);
+            assertThat(status.get("jobId").asText()).isEqualTo(id);
+            state = status.get("state").asText();
+            if ("QUEUED".equals(state) || "RUNNING".equals(state)) Thread.sleep(50);
+        }
+        assertThat(state).isEqualTo("COMPLETED");
+        assertThat(financialSnapshot()).isEqualTo(before);
+    }
+
+    private Map<String, java.util.List<Map<String, Object>>> financialSnapshot() {
+        return Map.of(
+                "trading_account", jdbc.queryForList("select * from trading_account order by id"),
+                "ledger_entry", jdbc.queryForList("select * from ledger_entry order by id"),
+                "trading_order", jdbc.queryForList("select * from trading_order order by id"),
+                "execution", jdbc.queryForList("select * from execution order by id"),
+                "position", jdbc.queryForList("select * from position order by id"));
     }
 
     @Test

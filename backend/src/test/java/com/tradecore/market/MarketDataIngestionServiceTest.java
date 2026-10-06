@@ -60,6 +60,9 @@ class MarketDataIngestionServiceTest {
     private MarketCandleRepository candleRepository;
 
     @Autowired
+    private InstrumentRepository instrumentRepository;
+
+    @Autowired
     private JdbcTemplate jdbcTemplate;
 
     @BeforeEach
@@ -128,6 +131,58 @@ class MarketDataIngestionServiceTest {
         assertThat(second).isEqualTo(new MarketDataIngestionResult(1, 0, 0, 1, 0));
         assertThat(jdbcTemplate.queryForObject("SELECT close_price FROM market_candle", BigDecimal.class))
                 .isEqualByComparingTo("105");
+    }
+
+    @Test
+    void backfillsOneInstrumentWithinExactDateBoundsAndRepeatedRunsDoNotOverwrite() {
+        LocalDate through = LocalDate.now(NSE_ZONE).minusDays(1);
+        LocalDate from = through.minusMonths(3);
+        List<MarketCandleSnapshot> response = List.of(
+                candle("TCS", from.minusDays(1), "90", "95", "85", "92", 900L),
+                candle("TCS", from, "100", "110", "95", "105", 1200L),
+                candle("TCS", through, "105", "115", "100", "110", 1500L),
+                candle("TCS", through.plusDays(1), "110", "120", "105", "115", 1600L));
+        when(provider.getHistoricalCandles("TCS", 3, through)).thenReturn(response);
+        Instrument tcs = instrumentRepository.findByExchangeAndSymbol("NSE", "TCS").orElseThrow();
+
+        var first = ingestionService.backfillDailyCandles(tcs, 3, through);
+        var second = ingestionService.backfillDailyCandles(tcs, 3, through);
+
+        assertThat(first).isEqualTo(new MarketDataIngestionResult(2, 2, 0, 0, 0));
+        assertThat(second).isEqualTo(new MarketDataIngestionResult(2, 0, 0, 2, 0));
+        assertThat(count("market_candle")).isEqualTo(2);
+        assertThat(jdbcTemplate.queryForList("SELECT bucket_start FROM market_candle ORDER BY bucket_start", java.sql.Timestamp.class))
+                .extracting(timestamp -> timestamp.toInstant())
+                .containsExactly(from.atStartOfDay(NSE_ZONE).toInstant(), through.atStartOfDay(NSE_ZONE).toInstant());
+        assertThat(jdbcTemplate.queryForList("SELECT close_price FROM market_candle ORDER BY bucket_start", BigDecimal.class))
+                .usingElementComparator(BigDecimal::compareTo)
+                .containsExactly(new BigDecimal("105"), new BigDecimal("110"));
+        verify(provider, org.mockito.Mockito.times(2)).getHistoricalCandles("TCS", 3, through);
+    }
+
+    @Test
+    void backfillUsesAtMostThreeMonthWindowsAndKeepsEarlierWindowsWhenLaterRequestTimesOut() {
+        LocalDate through = LocalDate.now(NSE_ZONE).minusDays(1);
+        LocalDate from = through.minusMonths(4);
+        LocalDate firstEnd = from.plusMonths(3).minusDays(1);
+        when(provider.getHistoricalCandles("TCS", 3, firstEnd)).thenReturn(
+                List.of(candle("TCS", from.plusDays(4), "100", "105", "95", "102", 800L)));
+        when(provider.getHistoricalCandles("TCS", 1, through)).thenThrow(new MarketDataProviderException(
+                MarketDataProviderException.Category.TIMEOUT, "NSE MCP timed out"));
+        Instrument tcs = instrumentRepository.findByExchangeAndSymbol("NSE", "TCS").orElseThrow();
+
+        assertThatThrownBy(() -> ingestionService.backfillDailyCandles(tcs, 4, through))
+                .isInstanceOf(HistoricalBackfillPartialFailure.class)
+                .satisfies(failure -> {
+                    var partial = (HistoricalBackfillPartialFailure) failure;
+                    assertThat(partial.failure()).isInstanceOfSatisfying(MarketDataProviderException.class,
+                            providerFailure -> assertThat(providerFailure.category()).isEqualTo(MarketDataProviderException.Category.TIMEOUT));
+                    assertThat(partial.persisted()).isEqualTo(new MarketDataIngestionResult(1, 1, 0, 0, 0));
+                });
+
+        assertThat(count("market_candle")).isEqualTo(1);
+        verify(provider).getHistoricalCandles("TCS", 3, firstEnd);
+        verify(provider).getHistoricalCandles("TCS", 1, through);
     }
 
     @Test

@@ -84,6 +84,12 @@ public class OrderExecutionService {
             int comparison = executionPrice.compareTo(order.getLimitPrice());
             if (("BUY".equals(order.getSide()) && comparison > 0)
                     || ("SELL".equals(order.getSide()) && comparison < 0)) return false;
+        } else if ("STOP_MARKET".equals(order.getOrderType())) {
+            BigDecimal triggerPrice = order.getTriggerPrice();
+            if (triggerPrice == null || triggerPrice.signum() <= 0) return false;
+            int comparison = executionPrice.compareTo(triggerPrice);
+            if (("BUY".equals(order.getSide()) && comparison < 0)
+                    || ("SELL".equals(order.getSide()) && comparison > 0)) return false;
         } else if (!"MARKET".equals(order.getOrderType())) return false;
 
         long quantity = order.getRemainingQuantity();

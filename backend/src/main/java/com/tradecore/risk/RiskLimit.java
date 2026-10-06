@@ -5,6 +5,7 @@ import com.tradecore.market.Instrument;
 import jakarta.persistence.*;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.Locale;
 import java.util.UUID;
 
 @Entity
@@ -22,6 +23,14 @@ public class RiskLimit {
     @Column(name = "created_at", nullable = false) private Instant createdAt;
     protected RiskLimit() {}
 
+    public RiskLimit(TradingAccount account, Instrument instrument, String scope, String limitType,
+            BigDecimal limitValue, boolean enabled, Instant effectiveFrom, Instant effectiveUntil, Instant createdAt) {
+        configure(account, instrument, scope, limitType, limitValue, enabled, effectiveFrom, effectiveUntil);
+        this.createdAt = createdAt;
+    }
+
+    public UUID getId() { return id; }
+    public TradingAccount getAccount() { return account; }
     public Instrument getInstrument() { return instrument; }
     public String getScope() { return scope; }
     public String getLimitType() { return limitType; }
@@ -29,4 +38,19 @@ public class RiskLimit {
     public boolean isEnabled() { return enabled; }
     public Instant getEffectiveFrom() { return effectiveFrom; }
     public Instant getEffectiveUntil() { return effectiveUntil; }
+    public Instant getCreatedAt() { return createdAt; }
+
+    public void configure(TradingAccount account, Instrument instrument, String scope, String limitType,
+            BigDecimal limitValue, boolean enabled, Instant effectiveFrom, Instant effectiveUntil) {
+        this.account = account;
+        this.instrument = instrument;
+        this.scope = scope.toUpperCase(Locale.ROOT);
+        this.limitType = limitType.toUpperCase(Locale.ROOT);
+        this.limitValue = limitValue;
+        this.enabled = enabled;
+        this.effectiveFrom = effectiveFrom;
+        this.effectiveUntil = effectiveUntil;
+    }
+
+    public void setEnabled(boolean enabled) { this.enabled = enabled; }
 }

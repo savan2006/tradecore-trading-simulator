@@ -63,10 +63,11 @@ export default function CompanyPage() {
 
 function OrderPanel({ exchange, symbol, credential }: { exchange: string; symbol: string; credential: string | null }) {
   const [side, setSide] = useState<"BUY" | "SELL">("BUY");
-  const [orderType, setOrderType] = useState<"MARKET" | "LIMIT">("MARKET");
+  const [orderType, setOrderType] = useState<"MARKET" | "LIMIT" | "STOP_MARKET">("MARKET");
   const [tradingMode, setTradingMode] = useState<"DELIVERY" | "INTRADAY">("DELIVERY");
   const [quantity, setQuantity] = useState("1");
   const [limitPrice, setLimitPrice] = useState("");
+  const [triggerPrice, setTriggerPrice] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [placed, setPlaced] = useState<PlacedOrder | null>(null);
@@ -86,6 +87,7 @@ function OrderPanel({ exchange, symbol, credential }: { exchange: string; symbol
         tradingMode,
         quantity: Number(quantity),
         ...(orderType === "LIMIT" ? { limitPrice: Number(limitPrice) } : {}),
+        ...(orderType === "STOP_MARKET" ? { triggerPrice: Number(triggerPrice) } : {}),
       };
       setPlaced(await api.placeOrder(credential, body));
     } catch (cause) {
@@ -101,10 +103,12 @@ function OrderPanel({ exchange, symbol, credential }: { exchange: string; symbol
     {!credential ? <p className="muted">Sign in to place a paper order. <Link href="/login">Go to login</Link></p> : <>
       <form className="order-form" onSubmit={submit}>
         <label>Side<select value={side} onChange={(event) => setSide(event.target.value as "BUY" | "SELL")}><option value="BUY">BUY</option><option value="SELL">SELL</option></select></label>
-        <label>Order type<select value={orderType} onChange={(event) => setOrderType(event.target.value as "MARKET" | "LIMIT")}><option value="MARKET">MARKET</option><option value="LIMIT">LIMIT</option></select></label>
+        <label>Order type<select value={orderType} onChange={(event) => setOrderType(event.target.value as "MARKET" | "LIMIT" | "STOP_MARKET")}><option value="MARKET">MARKET</option><option value="LIMIT">LIMIT</option><option value="STOP_MARKET">STOP_MARKET</option></select></label>
         <label>Mode<select value={tradingMode} onChange={(event) => setTradingMode(event.target.value as "DELIVERY" | "INTRADAY")}><option value="DELIVERY">DELIVERY</option><option value="INTRADAY">INTRADAY</option></select></label>
         <label>Quantity<input type="number" min="1" step="1" required value={quantity} onChange={(event) => setQuantity(event.target.value)} /></label>
         {orderType === "LIMIT" && <label>Limit price (INR)<input type="number" min="0.000001" step="0.000001" required value={limitPrice} onChange={(event) => setLimitPrice(event.target.value)} /></label>}
+        {orderType === "STOP_MARKET" && <label>Trigger price (INR)<input type="number" min="0.000001" step="0.000001" required value={triggerPrice} onChange={(event) => setTriggerPrice(event.target.value)} /></label>}
+        {orderType === "STOP_MARKET" && <p className="panel-footnote">A STOP_MARKET order remains pending until its trigger condition is reached using an eligible persisted quote. BUY triggers at or above the trigger price; SELL triggers at or below it. When triggered, it executes using the current eligible quote and is not guaranteed to fill at the trigger price.</p>}
         <button type="submit" className="primary-button" disabled={sending}>{sending ? "Sending…" : "Place paper order"}</button>
       </form>
       {error && <p className="notice notice-stale order-message" role="alert">{error}</p>}

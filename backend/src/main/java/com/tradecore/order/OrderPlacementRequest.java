@@ -13,5 +13,11 @@ public record OrderPlacementRequest(
         @NotBlank @Size(max = 12) String orderType,
         @NotBlank @Size(max = 12) String tradingMode,
         @Positive long quantity,
-        BigDecimal limitPrice) {
+        BigDecimal limitPrice,
+        BigDecimal triggerPrice) {
+
+    public OrderPlacementRequest(String exchange, String symbol, String side, String orderType,
+            String tradingMode, long quantity, BigDecimal limitPrice) {
+        this(exchange, symbol, side, orderType, tradingMode, quantity, limitPrice, null);
+    }
 }

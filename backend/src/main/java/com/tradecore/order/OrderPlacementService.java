@@ -101,7 +101,7 @@ public class OrderPlacementService {
 
         String idempotencyKey = normalizeIdempotencyKey(suppliedIdempotencyKey);
         String fingerprint = requestFingerprint(exchange, symbol, side, orderType, tradingMode,
-                request.quantity(), normalizedPrice(request.limitPrice()));
+                request.quantity(), normalizedPrice(request.limitPrice()), normalizedPrice(request.triggerPrice()));
         if (idempotencyKey != null) {
             var existing = idempotencyRepository.findByAccount_IdAndIdempotencyKey(account.getId(), idempotencyKey);
             if (existing.isPresent()) {
@@ -124,7 +124,13 @@ public class OrderPlacementService {
             throw unprocessable("Market orders require an open regular market session");
         }
 
-        BigDecimal referencePrice = "LIMIT".equals(orderType) ? request.limitPrice() : quote.getLastPrice();
+        BigDecimal referencePrice = switch (orderType) {
+            case "LIMIT" -> request.limitPrice();
+            case "STOP_MARKET" -> "BUY".equals(side)
+                    ? quote.getLastPrice().max(request.triggerPrice())
+                    : quote.getLastPrice();
+            default -> quote.getLastPrice();
+        };
         BigDecimal reservation = referencePrice.multiply(BigDecimal.valueOf(request.quantity()))
                 .setScale(4, RoundingMode.CEILING);
         validateRiskLimits(account, instrument, request.quantity(), reservation, now);
@@ -145,7 +151,8 @@ public class OrderPlacementService {
         }
 
         TradingOrder order = new TradingOrder(account, instrument, side, orderType, tradingMode,
-                request.quantity(), request.limitPrice(), "BUY".equals(side) ? reservation : BigDecimal.ZERO.setScale(4), now);
+                request.quantity(), request.limitPrice(), request.triggerPrice(),
+                "BUY".equals(side) ? reservation : BigDecimal.ZERO.setScale(4), now);
         order = orderRepository.saveAndFlush(order);
         orderEventRepository.saveAndFlush(new OrderEvent(order, null, PENDING, ORDER_PLACED,
                 "Resources reserved; order is pending and has not been executed", now));
@@ -169,16 +176,18 @@ public class OrderPlacementService {
         if (!"BUY".equals(side) && !"SELL".equals(side)) {
             throw badRequest("side must be BUY or SELL");
         }
-        if (!"MARKET".equals(orderType) && !"LIMIT".equals(orderType)) {
-            throw badRequest("orderType must be MARKET or LIMIT");
+        if (!"MARKET".equals(orderType) && !"LIMIT".equals(orderType) && !"STOP_MARKET".equals(orderType)) {
+            throw badRequest("orderType must be MARKET, LIMIT or STOP_MARKET");
         }
         if (!"DELIVERY".equals(tradingMode) && !"INTRADAY".equals(tradingMode)) {
             throw badRequest("tradingMode must be DELIVERY or INTRADAY");
         }
-        if ("MARKET".equals(orderType) && request.limitPrice() != null) {
-            throw badRequest("limitPrice must be omitted for MARKET orders");
+        if ("MARKET".equals(orderType)
+                && (request.limitPrice() != null || request.triggerPrice() != null)) {
+            throw badRequest("limitPrice and triggerPrice must be omitted for MARKET orders");
         }
         if ("LIMIT".equals(orderType)) {
+            if (request.triggerPrice() != null) throw badRequest("triggerPrice must be omitted for LIMIT orders");
             BigDecimal price = request.limitPrice();
             if (price == null || price.signum() <= 0) {
                 throw badRequest("A LIMIT order requires a positive limitPrice");
@@ -189,6 +198,20 @@ public class OrderPlacementService {
                 }
             } catch (ArithmeticException exception) {
                 throw badRequest("limitPrice supports at most six decimal places");
+            }
+        }
+        if ("STOP_MARKET".equals(orderType)) {
+            if (request.limitPrice() != null) throw badRequest("limitPrice must be omitted for STOP_MARKET orders");
+            BigDecimal trigger = request.triggerPrice();
+            if (trigger == null || trigger.signum() <= 0) {
+                throw badRequest("A STOP_MARKET order requires a positive triggerPrice");
+            }
+            try {
+                if (trigger.setScale(6, RoundingMode.UNNECESSARY).precision() > 19) {
+                    throw badRequest("triggerPrice exceeds the supported precision");
+                }
+            } catch (ArithmeticException exception) {
+                throw badRequest("triggerPrice supports at most six decimal places");
             }
         }
     }
@@ -234,9 +257,10 @@ public class OrderPlacementService {
     }
 
     private static String requestFingerprint(String exchange, String symbol, String side, String orderType,
-            String tradingMode, long quantity, BigDecimal limitPrice) {
+            String tradingMode, long quantity, BigDecimal limitPrice, BigDecimal triggerPrice) {
         String canonical = String.join("|", exchange, symbol, side, orderType, tradingMode,
-                Long.toString(quantity), limitPrice == null ? "" : limitPrice.stripTrailingZeros().toPlainString());
+                Long.toString(quantity), limitPrice == null ? "" : limitPrice.stripTrailingZeros().toPlainString(),
+                triggerPrice == null ? "" : triggerPrice.stripTrailingZeros().toPlainString());
         try {
             return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
                     .digest(canonical.getBytes(StandardCharsets.UTF_8)));

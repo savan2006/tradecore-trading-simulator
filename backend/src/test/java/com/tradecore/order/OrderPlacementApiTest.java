@@ -234,6 +234,35 @@ class OrderPlacementApiTest {
     }
 
     @Test
+    void stopMarketRequestsRequirePositiveTriggerAndRejectUnrelatedPrices() throws Exception {
+        TestAccount user = createAccount();
+        place(user, new OrderPlacementRequest("NSE", "TCS", "BUY", "STOP_MARKET", "DELIVERY", 1, null), null)
+                .andExpect(status().isBadRequest());
+        place(user, new OrderPlacementRequest("NSE", "TCS", "BUY", "STOP_MARKET", "DELIVERY", 1,
+                null, BigDecimal.ZERO), null).andExpect(status().isBadRequest());
+        place(user, new OrderPlacementRequest("NSE", "TCS", "BUY", "STOP_MARKET", "DELIVERY", 1,
+                new BigDecimal("100"), new BigDecimal("105")), null).andExpect(status().isBadRequest());
+        place(user, new OrderPlacementRequest("NSE", "TCS", "BUY", "MARKET", "DELIVERY", 1,
+                null, new BigDecimal("100")), null).andExpect(status().isBadRequest());
+        place(user, new OrderPlacementRequest("NSE", "TCS", "BUY", "LIMIT", "DELIVERY", 1,
+                new BigDecimal("100"), new BigDecimal("105")), null).andExpect(status().isBadRequest());
+        assertThat(orderCount(user.accountId())).isZero();
+        assertBalance(user.accountId(), "100000.0000", "0.0000");
+    }
+
+    @Test
+    void accountRiskLimitStillRejectsStopMarketOrder() throws Exception {
+        TestAccount user = createAccount();
+        jdbcTemplate.update("INSERT INTO risk_limit (id, account_id, scope, limit_type, limit_value, enabled, created_at) "
+                        + "VALUES (?, ?, 'ACCOUNT', 'MAX_ORDER_QUANTITY', 1, TRUE, ?)",
+                UUID.randomUUID(), user.accountId(), Timestamp.from(Instant.now()));
+        place(user, new OrderPlacementRequest("NSE", "TCS", "BUY", "STOP_MARKET", "DELIVERY", 2,
+                null, new BigDecimal("105")), null).andExpect(status().isUnprocessableEntity());
+        assertBalance(user.accountId(), "100000.0000", "0.0000");
+        assertThat(orderCount(user.accountId())).isZero();
+    }
+
+    @Test
     void orderCreationFailureRollsBackReservationAndLeavesNoOrphanEvent() throws Exception {
         TestAccount user = createAccount();
         doThrow(new IllegalStateException("simulated order persistence failure"))

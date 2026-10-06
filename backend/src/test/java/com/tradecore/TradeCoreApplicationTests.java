@@ -249,7 +249,7 @@ class TradeCoreApplicationTests {
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM (SELECT instrument_id FROM learning_profile GROUP BY instrument_id HAVING COUNT(*) > 1) duplicates",
                 Integer.class)).isZero();
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("9");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("10");
     }
 
     private void insertUser(UUID id, String email) {

@@ -185,6 +185,87 @@ public class MarketDataIngestionService {
         });
     }
 
+    /** Resolves only the approved NSE universe once for a controlled historical backfill run. */
+    public List<Instrument> resolveHistoricalBackfillInstruments(Collection<String> requestedSymbols) {
+        return selectInstruments(approvedInstrumentMap(), requestedSymbols);
+    }
+
+    /**
+     * Backfills one instrument in sequential provider windows of at most three months.
+     * Each successfully normalized window is committed independently so a later timeout can be resumed.
+     */
+    public MarketDataIngestionResult backfillDailyCandles(Instrument instrument, int months, LocalDate throughDate) {
+        if (instrument == null || !EXCHANGE.equals(instrument.getExchange()) || !instrument.isTradable()) {
+            throw unavailable("Historical backfill requires an approved tradable NSE instrument");
+        }
+        if (months < 1 || months > 36 || throughDate == null
+                || throughDate.isAfter(LocalDate.now(EXCHANGE_ZONE).minusDays(1))) {
+            throw new IllegalArgumentException("Backfill period must be 1 to 36 months and end no later than yesterday");
+        }
+
+        LocalDate fromDate = throughDate.minusMonths(months);
+        LocalDate cursor = fromDate;
+        int remainingMonths = months;
+        int received = 0;
+        int inserted = 0;
+        int skipped = 0;
+        try {
+            while (remainingMonths > 0) {
+                int chunkMonths = Math.min(3, remainingMonths);
+                LocalDate chunkToExclusive = remainingMonths == chunkMonths
+                        ? throughDate.plusDays(1) : cursor.plusMonths(chunkMonths);
+                LocalDate providerEndDate = chunkToExclusive.minusDays(1);
+                LocalDate chunkFrom = cursor;
+                List<MarketCandleSnapshot> snapshots = provider.getHistoricalCandles(
+                        instrument.getSymbol(), chunkMonths, providerEndDate);
+                validateCandles(instrument, snapshots);
+                List<MarketCandleSnapshot> inWindow = snapshots.stream()
+                        .filter(snapshot -> !snapshot.tradingDate().isBefore(chunkFrom)
+                                && snapshot.tradingDate().isBefore(chunkToExclusive)
+                                && !snapshot.tradingDate().isAfter(throughDate))
+                        .toList();
+                MarketDataIngestionResult chunkResult = persistHistoricalCandleWindow(
+                        instrument, inWindow, cursor, chunkToExclusive);
+                received += chunkResult.received();
+                inserted += chunkResult.inserted();
+                skipped += chunkResult.skipped();
+                cursor = chunkToExclusive;
+                remainingMonths -= chunkMonths;
+            }
+        } catch (RuntimeException failure) {
+            throw new HistoricalBackfillPartialFailure(failure,
+                    new MarketDataIngestionResult(received, inserted, 0, skipped, 0));
+        }
+        return new MarketDataIngestionResult(received, inserted, 0, skipped, 0);
+    }
+
+    private MarketDataIngestionResult persistHistoricalCandleWindow(Instrument instrument,
+            List<MarketCandleSnapshot> snapshots, LocalDate fromDate, LocalDate toExclusiveDate) {
+        Instant fromInclusive = fromDate.atStartOfDay(EXCHANGE_ZONE).toInstant();
+        Instant toExclusive = toExclusiveDate.atStartOfDay(EXCHANGE_ZONE).toInstant();
+        List<MarketCandle> existingRows = candleRepository
+                .findAllByInstrument_IdAndResolutionAndBucketStartGreaterThanEqualAndBucketStartLessThanOrderByBucketStartAsc(
+                        instrument.getId(), DAILY_RESOLUTION, fromInclusive, toExclusive, org.springframework.data.domain.PageRequest.of(0, 100));
+        Set<Instant> existingBuckets = existingRows.stream().map(MarketCandle::getBucketStart).collect(Collectors.toSet());
+        Instant ingestedAt = Instant.now();
+        return transactionTemplate.execute(status -> {
+            List<MarketCandle> missing = new ArrayList<>();
+            int skipped = 0;
+            Instrument managedInstrument = instrumentRepository.getReferenceById(instrument.getId());
+            for (MarketCandleSnapshot candle : snapshots) {
+                Instant bucketStart = candle.tradingDate().atStartOfDay(EXCHANGE_ZONE).toInstant();
+                if (existingBuckets.contains(bucketStart)) {
+                    skipped++;
+                } else {
+                    missing.add(new MarketCandle(managedInstrument, DAILY_RESOLUTION, bucketStart, candle, ingestedAt));
+                    existingBuckets.add(bucketStart);
+                }
+            }
+            candleRepository.saveAll(missing);
+            return new MarketDataIngestionResult(snapshots.size(), missing.size(), 0, skipped, 0);
+        });
+    }
+
     private Map<String, Instrument> approvedInstrumentMap() {
         List<Instrument> approved = instrumentRepository.findAllByExchangeAndTradableTrue(EXCHANGE);
         if (approved.size() != SUPPORTED_UNIVERSE_SIZE) {
