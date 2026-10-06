@@ -7,6 +7,7 @@ import com.tradecore.identity.RegistrationRequest;
 import com.tradecore.identity.RegistrationResponse;
 import com.tradecore.identity.UserRegistrationService;
 import com.tradecore.market.MarketHoursPolicy;
+import com.tradecore.execution.OrderExecutionService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -34,6 +35,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -56,6 +58,7 @@ class OrderPlacementApiTest {
     @Autowired private ObjectMapper objectMapper;
     @Autowired private UserRegistrationService registrationService;
     @Autowired private OrderPlacementService orderPlacementService;
+    @Autowired private OrderExecutionService orderExecutionService;
 
     @MockitoSpyBean private TradingOrderRepository orderRepository;
     @MockitoSpyBean private MarketHoursPolicy marketHoursPolicy;
@@ -66,7 +69,7 @@ class OrderPlacementApiTest {
     void prepareFreshTcsQuote() {
         instrumentId = jdbcTemplate.queryForObject(
                 "SELECT id FROM instrument WHERE exchange = 'NSE' AND symbol = 'TCS'", UUID.class);
-        putQuote(Instant.now(), "OPEN");
+        putQuote(Instant.now().minusSeconds(1), "OPEN");
     }
 
     @Test
@@ -125,6 +128,107 @@ class OrderPlacementApiTest {
                 .andExpect(jsonPath("$.status").value("PENDING"))
                 .andExpect(jsonPath("$.limitPrice").doesNotExist());
         assertBalance(user.accountId(), "99750.0000", "250.0000");
+    }
+
+    @Test
+    void validBuyLimitPreviewUsesPlacementRulesAndDoesNotMutateFinancialRows() throws Exception {
+        TestAccount user = createAccount();
+        OrderPlacementRequest input = request("BUY", "LIMIT", "DELIVERY", 2, "100.00");
+        mockMvc.perform(post("/api/v1/orders/preview").header("Authorization", basic(user.email(), PASSWORD))
+                        .contentType("application/json").content(objectMapper.writeValueAsBytes(input)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.valid").value(true))
+                .andExpect(jsonPath("$.currentEligiblePrice").value(125))
+                .andExpect(jsonPath("$.estimatedOrderValue").value(200))
+                .andExpect(jsonPath("$.estimatedBuyReservation").value(200))
+                .andExpect(jsonPath("$.quoteFreshnessStatus").value("LIVE"));
+        assertBalance(user.accountId(), "100000.0000", "0.0000");
+        assertThat(orderCount(user.accountId())).isZero();
+        assertThat(count("SELECT COUNT(*) FROM idempotency_record WHERE account_id = ?", user.accountId())).isZero();
+        assertThat(count("SELECT COUNT(*) FROM execution e JOIN trading_order o ON o.id = e.order_id WHERE o.account_id = ?", user.accountId())).isZero();
+        assertThat(count("SELECT COUNT(*) FROM position WHERE account_id = ?", user.accountId())).isZero();
+        assertThat(count("SELECT COUNT(*) FROM ledger_entry WHERE account_id = ?", user.accountId())).isEqualTo(1);
+    }
+
+    @Test
+    void sellAndStopMarketPreviewsExposeSellableQuantityAndStopReservation() throws Exception {
+        TestAccount seller = createAccount();
+        seedPosition(seller.accountId(), "DELIVERY", 7, 2);
+        mockMvc.perform(post("/api/v1/orders/preview").header("Authorization", basic(seller.email(), PASSWORD))
+                        .contentType("application/json")
+                        .content(objectMapper.writeValueAsBytes(request("SELL", "LIMIT", "DELIVERY", 5, "100"))))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.valid").value(true))
+                .andExpect(jsonPath("$.sellableQuantity").value(5));
+
+        TestAccount buyer = createAccount();
+        OrderPlacementRequest stop = new OrderPlacementRequest("NSE", "TCS", "BUY", "STOP_MARKET",
+                "DELIVERY", 2, null, new BigDecimal("130"));
+        mockMvc.perform(post("/api/v1/orders/preview").header("Authorization", basic(buyer.email(), PASSWORD))
+                        .contentType("application/json").content(objectMapper.writeValueAsBytes(stop)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.valid").value(true))
+                .andExpect(jsonPath("$.currentEligiblePrice").value(125))
+                .andExpect(jsonPath("$.estimatedBuyReservation").value(260));
+        assertBalance(buyer.accountId(), "100000.0000", "0.0000");
+        assertThat(orderCount(buyer.accountId())).isZero();
+    }
+
+    @Test
+    void previewReportsFundsRiskQuoteAndSessionFailuresWithoutMutations() throws Exception {
+        TestAccount user = createAccount();
+        OrderPlacementRequest tooLarge = request("BUY", "LIMIT", "DELIVERY", 2, "100");
+        jdbcTemplate.update("INSERT INTO risk_limit (id, account_id, scope, limit_type, limit_value, enabled, created_at) "
+                        + "VALUES (?, ?, 'ACCOUNT', 'MAX_ORDER_AMOUNT', 150, TRUE, ?)",
+                UUID.randomUUID(), user.accountId(), Timestamp.from(Instant.now()));
+        mockMvc.perform(post("/api/v1/orders/preview").header("Authorization", basic(user.email(), PASSWORD))
+                        .contentType("application/json").content(objectMapper.writeValueAsBytes(tooLarge)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.valid").value(false))
+                .andExpect(jsonPath("$.applicableRiskLimitFailures[0]").value("Order value exceeds the active risk limit"));
+        place(user, tooLarge, null).andExpect(status().isUnprocessableEntity());
+        assertThat(orderCount(user.accountId())).isZero();
+        assertBalance(user.accountId(), "100000.0000", "0.0000");
+
+        jdbcTemplate.update("DELETE FROM risk_limit WHERE account_id = ?", user.accountId());
+        OrderPlacementRequest expensive = request("BUY", "LIMIT", "DELIVERY", 1001, "100");
+        mockMvc.perform(post("/api/v1/orders/preview").header("Authorization", basic(user.email(), PASSWORD))
+                        .contentType("application/json").content(objectMapper.writeValueAsBytes(expensive)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.valid").value(false))
+                .andExpect(jsonPath("$.validationErrors[0]").value("Insufficient available virtual funds"));
+
+        doReturn(false).when(marketHoursPolicy).isRegularSession(any(Instant.class));
+        OrderPlacementRequest market = request("BUY", "MARKET", "DELIVERY", 1, null);
+        mockMvc.perform(post("/api/v1/orders/preview").header("Authorization", basic(user.email(), PASSWORD))
+                        .contentType("application/json").content(objectMapper.writeValueAsBytes(market)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.valid").value(false))
+                .andExpect(jsonPath("$.marketSessionEligibility").value("CLOSED"));
+        doReturn(true).when(marketHoursPolicy).isRegularSession(any(Instant.class));
+
+        putQuote(Instant.now().minusSeconds(601), "OPEN");
+        mockMvc.perform(post("/api/v1/orders/preview").header("Authorization", basic(user.email(), PASSWORD))
+                        .contentType("application/json").content(objectMapper.writeValueAsBytes(tooLarge)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.quoteFreshnessStatus").value("STALE"))
+                .andExpect(jsonPath("$.currentEligiblePrice").value(org.hamcrest.Matchers.nullValue()));
+        jdbcTemplate.update("DELETE FROM market_quote WHERE instrument_id = ?", instrumentId);
+        mockMvc.perform(post("/api/v1/orders/preview").header("Authorization", basic(user.email(), PASSWORD))
+                        .contentType("application/json").content(objectMapper.writeValueAsBytes(tooLarge)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.quoteFreshnessStatus").value("UNAVAILABLE"));
+        assertThat(orderCount(user.accountId())).isZero();
+        assertBalance(user.accountId(), "100000.0000", "0.0000");
+    }
+
+    @Test
+    void previewRequiresAuthenticationAndReportsUnsupportedInstrument() throws Exception {
+        mockMvc.perform(post("/api/v1/orders/preview").contentType("application/json")
+                        .content(objectMapper.writeValueAsBytes(request("BUY", "LIMIT", "DELIVERY", 1, "100"))))
+                .andExpect(status().isUnauthorized());
+        TestAccount user = createAccount();
+        OrderPlacementRequest unsupported = new OrderPlacementRequest("NSE", "NOTSUPPORTED", "BUY", "LIMIT",
+                "DELIVERY", 1, new BigDecimal("100"));
+        mockMvc.perform(post("/api/v1/orders/preview").header("Authorization", basic(user.email(), PASSWORD))
+                        .contentType("application/json").content(objectMapper.writeValueAsBytes(unsupported)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.valid").value(false))
+                .andExpect(jsonPath("$.validationErrors[0]").value("Unsupported or non-tradable instrument"));
+        assertThat(orderCount(user.accountId())).isZero();
+        assertBalance(user.accountId(), "100000.0000", "0.0000");
     }
 
     @Test
@@ -263,6 +367,242 @@ class OrderPlacementApiTest {
     }
 
     @Test
+    void limitQuantityAndPriceChangesRecalculateBuyReservationInBothDirections() throws Exception {
+        TestAccount user = createAccount();
+        UUID id = orderId(place(user, request("BUY", "LIMIT", "DELIVERY", 2, "100"), null)
+                .andExpect(status().isCreated()).andReturn());
+
+        modify(user, id, new OrderModificationRequest(3L, new BigDecimal("110"), null))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.requestedQuantity").value(3))
+                .andExpect(jsonPath("$.remainingQuantity").value(3)).andExpect(jsonPath("$.limitPrice").value(110));
+        assertBalance(user.accountId(), "99670.0000", "330.0000");
+
+        modify(user, id, new OrderModificationRequest(1L, new BigDecimal("90"), null))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.requestedQuantity").value(1));
+        assertBalance(user.accountId(), "99910.0000", "90.0000");
+        modify(user, id, new OrderModificationRequest(1L, new BigDecimal("90.00"), null))
+                .andExpect(status().isOk());
+        assertThat(count("SELECT COUNT(*) FROM order_event WHERE order_id = ? AND event_type = 'ORDER_MODIFIED'", id))
+                .isEqualTo(2);
+        assertThat(count("SELECT COUNT(*) FROM execution WHERE order_id = ?", id)).isZero();
+        assertThat(count("SELECT COUNT(*) FROM position WHERE account_id = ?", user.accountId())).isZero();
+        assertThat(count("SELECT COUNT(*) FROM ledger_entry WHERE account_id = ?", user.accountId())).isEqualTo(1);
+    }
+
+    @Test
+    void stopMarketQuantityAndTriggerCanBeModifiedAndReservationTracksTheNewTrigger() throws Exception {
+        TestAccount user = createAccount();
+        var stop = new OrderPlacementRequest("NSE", "TCS", "BUY", "STOP_MARKET", "DELIVERY", 1,
+                null, new BigDecimal("130"));
+        UUID id = orderId(place(user, stop, null).andExpect(status().isCreated()).andReturn());
+
+        modify(user, id, new OrderModificationRequest(2L, null, new BigDecimal("150")))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.triggerPrice").value(150));
+        assertBalance(user.accountId(), "99700.0000", "300.0000");
+        modify(user, id, new OrderModificationRequest(1L, null, new BigDecimal("100")))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.remainingQuantity").value(1));
+        assertBalance(user.accountId(), "99875.0000", "125.0000");
+    }
+
+    @Test
+    void sellQuantityIncreaseAndDecreaseAdjustOnlyReservedQuantity() throws Exception {
+        TestAccount user = createAccount();
+        seedPosition(user.accountId(), "DELIVERY", 10, 0);
+        UUID id = orderId(place(user, request("SELL", "LIMIT", "DELIVERY", 2, "150"), null)
+                .andExpect(status().isCreated()).andReturn());
+
+        modify(user, id, new OrderModificationRequest(4L, null, null)).andExpect(status().isOk());
+        assertThat(jdbcTemplate.queryForObject("SELECT reserved_quantity FROM position WHERE account_id = ?",
+                Long.class, user.accountId())).isEqualTo(4L);
+        modify(user, id, new OrderModificationRequest(1L, null, null)).andExpect(status().isOk());
+        assertThat(jdbcTemplate.queryForObject("SELECT quantity FROM position WHERE account_id = ?",
+                Long.class, user.accountId())).isEqualTo(10L);
+        assertThat(jdbcTemplate.queryForObject("SELECT reserved_quantity FROM position WHERE account_id = ?",
+                Long.class, user.accountId())).isEqualTo(1L);
+        assertBalance(user.accountId(), "100000.0000", "0.0000");
+    }
+
+    @Test
+    void rejectsOrdersThatAreFilledCancelledMarketInvalidRiskLimitedOrOwnedByAnotherUser() throws Exception {
+        TestAccount user = createAccount();
+        UUID filled = orderId(place(user, request("BUY", "LIMIT", "DELIVERY", 1, "200"), null)
+                .andExpect(status().isCreated()).andReturn());
+        doReturn(true).when(marketHoursPolicy).isRegularSession(any(Instant.class));
+        putQuote(Instant.now().minusSeconds(1), "OPEN");
+        assertThat(orderExecutionService.executePending(filled)).isTrue();
+        modify(user, filled, new OrderModificationRequest(2L, null, null)).andExpect(status().isConflict());
+
+        TestAccount cancelledOwner = createAccount();
+        UUID cancelled = orderId(place(cancelledOwner, request("BUY", "LIMIT", "DELIVERY", 1, "100"), null)
+                .andExpect(status().isCreated()).andReturn());
+        mockMvc.perform(post("/api/v1/orders/{id}/cancel", cancelled)
+                        .header("Authorization", basic(cancelledOwner.email(), PASSWORD)))
+                .andExpect(status().isOk());
+        modify(cancelledOwner, cancelled, new OrderModificationRequest(2L, null, null))
+                .andExpect(status().isConflict());
+
+        TestAccount marketOwner = createAccount();
+        doReturn(true).when(marketHoursPolicy).isRegularSession(any(Instant.class));
+        UUID market = orderId(place(marketOwner, request("BUY", "MARKET", "DELIVERY", 1, null), null)
+                .andExpect(status().isCreated()).andReturn());
+        modify(marketOwner, market, new OrderModificationRequest(2L, null, null))
+                .andExpect(status().isConflict());
+
+        TestAccount stranger = createAccount();
+        UUID strangerOrder = orderId(place(stranger, request("BUY", "LIMIT", "DELIVERY", 1, "100"), null)
+                .andExpect(status().isCreated()).andReturn());
+        modify(marketOwner, strangerOrder, new OrderModificationRequest(2L, null, null))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(put("/api/v1/orders/{id}", strangerOrder).contentType("application/json")
+                        .content("{\"quantity\":2}"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void invalidValuesAndRiskLimitAreRejectedWithoutChangingReservations() throws Exception {
+        TestAccount user = createAccount();
+        UUID id = orderId(place(user, request("BUY", "LIMIT", "DELIVERY", 1, "100"), null)
+                .andExpect(status().isCreated()).andReturn());
+        modify(user, id, new OrderModificationRequest(0L, null, null)).andExpect(status().isBadRequest());
+        modify(user, id, new OrderModificationRequest(null, new BigDecimal("-1"), null))
+                .andExpect(status().isBadRequest());
+        modify(user, id, new OrderModificationRequest(null, null, new BigDecimal("105")))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(put("/api/v1/orders/{id}", id)
+                        .header("Authorization", basic(user.email(), PASSWORD)).contentType("application/json")
+                        .content("{\"quantity\":2,\"side\":\"SELL\"}"))
+                .andExpect(status().isBadRequest());
+
+        jdbcTemplate.update("INSERT INTO risk_limit (id, account_id, scope, limit_type, limit_value, enabled, created_at) "
+                        + "VALUES (?, ?, 'ACCOUNT', 'MAX_ORDER_QUANTITY', 1, TRUE, ?)",
+                UUID.randomUUID(), user.accountId(), Timestamp.from(Instant.now()));
+        modify(user, id, new OrderModificationRequest(2L, null, null)).andExpect(status().isUnprocessableEntity());
+        assertThat(jdbcTemplate.queryForObject("SELECT requested_quantity FROM trading_order WHERE id = ?",
+                Long.class, id)).isEqualTo(1L);
+        assertBalance(user.accountId(), "99900.0000", "100.0000");
+    }
+
+    @Test
+    void increasesBeyondAvailableFundsOrFreeSellQuantityAreRejectedWithoutOverspendOrOversell() throws Exception {
+        TestAccount buyer = createAccount();
+        UUID buyId = orderId(place(buyer, request("BUY", "LIMIT", "DELIVERY", 1, "100000"), null)
+                .andExpect(status().isCreated()).andReturn());
+        modify(buyer, buyId, new OrderModificationRequest(null, new BigDecimal("100001"), null))
+                .andExpect(status().isUnprocessableEntity());
+        assertBalance(buyer.accountId(), "0.0000", "100000.0000");
+        assertThat(jdbcTemplate.queryForObject("SELECT limit_price FROM trading_order WHERE id = ?",
+                BigDecimal.class, buyId)).isEqualByComparingTo("100000");
+
+        TestAccount seller = createAccount();
+        seedPosition(seller.accountId(), "DELIVERY", 2, 0);
+        UUID sellId = orderId(place(seller, request("SELL", "LIMIT", "DELIVERY", 1, "150"), null)
+                .andExpect(status().isCreated()).andReturn());
+        modify(seller, sellId, new OrderModificationRequest(3L, null, null))
+                .andExpect(status().isUnprocessableEntity());
+        assertThat(jdbcTemplate.queryForObject("SELECT quantity FROM position WHERE account_id = ?",
+                Long.class, seller.accountId())).isEqualTo(2L);
+        assertThat(jdbcTemplate.queryForObject("SELECT reserved_quantity FROM position WHERE account_id = ?",
+                Long.class, seller.accountId())).isEqualTo(1L);
+    }
+
+    @Test
+    void modificationRechecksThatThePersistedQuoteIsFreshAndAvailable() throws Exception {
+        TestAccount user = createAccount();
+        UUID id = orderId(place(user, request("BUY", "LIMIT", "DELIVERY", 1, "100"), null)
+                .andExpect(status().isCreated()).andReturn());
+        putQuote(Instant.now().minusSeconds(601), "OPEN");
+        modify(user, id, new OrderModificationRequest(2L, null, null))
+                .andExpect(status().isUnprocessableEntity());
+        jdbcTemplate.update("DELETE FROM market_quote WHERE instrument_id = ?", instrumentId);
+        modify(user, id, new OrderModificationRequest(2L, null, null))
+                .andExpect(status().isUnprocessableEntity());
+        assertThat(jdbcTemplate.queryForObject("SELECT requested_quantity FROM trading_order WHERE id = ?",
+                Long.class, id)).isEqualTo(1L);
+        assertBalance(user.accountId(), "99900.0000", "100.0000");
+    }
+
+    @Test
+    void modificationFailureRollsBackOrderAndReservationAndSuccessCreatesOnlyAnEvent() throws Exception {
+        TestAccount user = createAccount();
+        UUID id = orderId(place(user, request("BUY", "LIMIT", "DELIVERY", 1, "100"), null)
+                .andExpect(status().isCreated()).andReturn());
+        int initialEvents = count("SELECT COUNT(*) FROM order_event WHERE order_id = ?", id);
+        jdbcTemplate.execute("ALTER TABLE order_event ADD CONSTRAINT ck_test_no_order_modified "
+                + "CHECK (event_type <> 'ORDER_MODIFIED' OR order_id <> '" + id + "')");
+        try {
+            assertThatThrownBy(() -> modify(user, id, new OrderModificationRequest(2L, null, null)).andReturn())
+                    .hasStackTraceContaining("CK_TEST_NO_ORDER_MODIFIED");
+        } finally {
+            jdbcTemplate.execute("ALTER TABLE order_event DROP CONSTRAINT ck_test_no_order_modified");
+        }
+        assertThat(jdbcTemplate.queryForObject("SELECT requested_quantity FROM trading_order WHERE id = ?",
+                Long.class, id)).isEqualTo(1L);
+        assertBalance(user.accountId(), "99900.0000", "100.0000");
+        assertThat(count("SELECT COUNT(*) FROM order_event WHERE order_id = ?", id)).isEqualTo(initialEvents);
+        assertThat(count("SELECT COUNT(*) FROM execution WHERE order_id = ?", id)).isZero();
+        assertThat(count("SELECT COUNT(*) FROM position WHERE account_id = ?", user.accountId())).isZero();
+        assertThat(count("SELECT COUNT(*) FROM ledger_entry WHERE account_id = ?", user.accountId())).isEqualTo(1);
+
+        modify(user, id, new OrderModificationRequest(2L, null, null)).andExpect(status().isOk());
+        assertThat(jdbcTemplate.queryForObject("SELECT event_type FROM order_event WHERE order_id = ? "
+                + "ORDER BY occurred_at DESC FETCH FIRST 1 ROW ONLY", String.class, id)).isEqualTo("ORDER_MODIFIED");
+    }
+
+    @Test
+    void concurrentModificationSerializesAgainstExecution() throws Exception {
+        TestAccount user = createAccount();
+        UUID id = orderId(place(user, request("BUY", "LIMIT", "DELIVERY", 1, "200"), null)
+                .andExpect(status().isCreated()).andReturn());
+        doReturn(true).when(marketHoursPolicy).isRegularSession(any(Instant.class));
+        putQuote(Instant.now().minusSeconds(1), "OPEN");
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        try {
+            Future<Integer> modified = executor.submit(() -> concurrentModify(user, id, ready, start));
+            Future<Boolean> executed = executor.submit(() -> {
+                ready.countDown(); start.await(); return orderExecutionService.executePending(id);
+            });
+            ready.await(); start.countDown();
+            assertThat(modified.get()).isIn(200, 409);
+            assertThat(executed.get()).isTrue();
+        } finally { executor.shutdownNow(); }
+        assertThat(jdbcTemplate.queryForObject("SELECT status FROM trading_order WHERE id = ?", String.class, id))
+                .isEqualTo("FILLED");
+        assertThat(jdbcTemplate.queryForObject("SELECT executed_quantity FROM trading_order WHERE id = ?", Long.class, id))
+                .isIn(1L, 2L);
+        assertThat(count("SELECT COUNT(*) FROM execution WHERE order_id = ?", id)).isEqualTo(1);
+        assertThat(count("SELECT COUNT(*) FROM ledger_entry WHERE account_id = ?", user.accountId())).isEqualTo(2);
+    }
+
+    @Test
+    void concurrentModificationSerializesAgainstCancellationAndReleasesReservationOnce() throws Exception {
+        TestAccount user = createAccount();
+        UUID id = orderId(place(user, request("BUY", "LIMIT", "DELIVERY", 1, "100"), null)
+                .andExpect(status().isCreated()).andReturn());
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        try {
+            Future<Integer> modified = executor.submit(() -> concurrentModify(user, id, ready, start));
+            Future<Integer> cancelled = executor.submit(() -> {
+                ready.countDown(); start.await();
+                return mockMvc.perform(post("/api/v1/orders/{id}/cancel", id)
+                                .header("Authorization", basic(user.email(), PASSWORD)))
+                        .andReturn().getResponse().getStatus();
+            });
+            ready.await(); start.countDown();
+            assertThat(modified.get()).isIn(200, 409);
+            assertThat(cancelled.get()).isEqualTo(200);
+        } finally { executor.shutdownNow(); }
+        assertThat(jdbcTemplate.queryForObject("SELECT status FROM trading_order WHERE id = ?", String.class, id))
+                .isEqualTo("CANCELLED");
+        assertBalance(user.accountId(), "100000.0000", "0.0000");
+        assertThat(count("SELECT COUNT(*) FROM order_event WHERE order_id = ? AND event_type = 'ORDER_CANCELLED'", id))
+                .isEqualTo(1);
+    }
+
+    @Test
     void orderCreationFailureRollsBackReservationAndLeavesNoOrphanEvent() throws Exception {
         TestAccount user = createAccount();
         doThrow(new IllegalStateException("simulated order persistence failure"))
@@ -336,6 +676,20 @@ class OrderPlacementApiTest {
         start.await();
         return place(user, request("SELL", "LIMIT", "DELIVERY", 70, "100"), UUID.randomUUID().toString())
                 .andReturn().getResponse().getStatus();
+    }
+
+    private int concurrentModify(TestAccount user, UUID orderId, CountDownLatch ready, CountDownLatch start)
+            throws Exception {
+        ready.countDown(); start.await();
+        return modify(user, orderId, new OrderModificationRequest(2L, null, null))
+                .andReturn().getResponse().getStatus();
+    }
+
+    private org.springframework.test.web.servlet.ResultActions modify(TestAccount user, UUID orderId,
+            OrderModificationRequest request) throws Exception {
+        return mockMvc.perform(put("/api/v1/orders/{id}", orderId)
+                .header("Authorization", basic(user.email(), PASSWORD))
+                .contentType("application/json").content(objectMapper.writeValueAsBytes(request)));
     }
 
     private org.springframework.test.web.servlet.ResultActions place(TestAccount user,

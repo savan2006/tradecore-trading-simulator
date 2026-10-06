@@ -29,6 +29,8 @@ import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.HexFormat;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 
 @Service
@@ -124,13 +126,7 @@ public class OrderPlacementService {
             throw unprocessable("Market orders require an open regular market session");
         }
 
-        BigDecimal referencePrice = switch (orderType) {
-            case "LIMIT" -> request.limitPrice();
-            case "STOP_MARKET" -> "BUY".equals(side)
-                    ? quote.getLastPrice().max(request.triggerPrice())
-                    : quote.getLastPrice();
-            default -> quote.getLastPrice();
-        };
+        BigDecimal referencePrice = referencePrice(request, side, orderType, quote);
         BigDecimal reservation = referencePrice.multiply(BigDecimal.valueOf(request.quantity()))
                 .setScale(4, RoundingMode.CEILING);
         validateRiskLimits(account, instrument, request.quantity(), reservation, now);
@@ -166,6 +162,200 @@ public class OrderPlacementService {
                 "{\"symbol\":\"" + instrument.getSymbol() + "\",\"side\":\"" + side
                         + "\",\"mode\":\"" + tradingMode + "\",\"quantity\":" + request.quantity() + "}");
         return OrderPlacementResponse.from(order);
+    }
+
+    @Transactional(readOnly = true)
+    public OrderPreviewResponse previewOrder(String authenticatedEmail, OrderPlacementRequest request) {
+        Instant now = Instant.now();
+        User user = userRepository.findByEmail(authenticatedEmail.trim().toLowerCase(Locale.ROOT))
+                .orElseThrow(() -> notFound("Authenticated user was not found"));
+        if (!"ACTIVE".equals(user.getStatus())) throw forbidden("User account is not active");
+        TradingAccount account = accountRepository.findByUser_Id(user.getId())
+                .orElseThrow(() -> notFound("Trading account was not found"));
+        List<String> errors = new ArrayList<>();
+        String exchange = normalized(request.exchange());
+        String symbol = normalized(request.symbol());
+        String side = normalized(request.side());
+        String type = normalized(request.orderType());
+        String mode = normalized(request.tradingMode());
+        if (!"ACTIVE".equals(account.getStatus())) errors.add("Trading account is not active");
+        try {
+            validateOrderFields(request, side, type, mode);
+        } catch (ResponseStatusException exception) {
+            errors.add(exception.getReason());
+            return previewResult(false, errors, exchange, symbol, side, type, mode, request.quantity(),
+                    null, null, null, null, List.of(), "UNAVAILABLE", null, sessionState(now, null), "UNKNOWN");
+        }
+        Instrument instrument = instrumentRepository.findByExchangeAndSymbol(exchange, symbol)
+                .filter(Instrument::isTradable).orElse(null);
+        if (instrument == null) {
+            errors.add("Unsupported or non-tradable instrument");
+            return previewResult(false, errors, exchange, symbol, side, type, mode, request.quantity(),
+                    null, null, null, null, List.of(), "UNAVAILABLE", null, sessionState(now, null), "UNKNOWN");
+        }
+        if (!account.getCurrency().equals(instrument.getCurrency())) errors.add("Instrument currency does not match the trading account");
+
+        MarketQuote quote = quoteRepository.findByInstrument_Id(instrument.getId()).orElse(null);
+        String freshness = quote == null ? "UNAVAILABLE" : com.tradecore.market.MarketQuoteResponse.from(quote, now).dataStatus();
+        Long age = quote == null || quote.getProviderUpdatedAt() == null ? null
+                : Math.max(0, Duration.between(quote.getProviderUpdatedAt(), now).getSeconds());
+        String marketStatus = quote == null ? "UNKNOWN" : quote.getMarketStatus();
+        boolean quoteEligible = quote != null && quoteIsEligible(quote, now);
+        if (!quoteEligible) errors.add(quote == null ? "A current market quote is required" : "Market quote is stale or unavailable");
+        String session = sessionState(now, marketStatus);
+        if ("MARKET".equals(type) && !"ELIGIBLE".equals(session)) errors.add("Market orders require an open regular market session");
+
+        BigDecimal eligiblePrice = quoteEligible ? quote.getLastPrice() : null;
+        BigDecimal pricingReference = quoteEligible ? referencePrice(request, side, type, quote) : null;
+        BigDecimal estimatedValue = pricingReference == null ? null
+                : pricingReference.multiply(BigDecimal.valueOf(request.quantity())).setScale(4, RoundingMode.CEILING);
+        BigDecimal reservation = "BUY".equals(side) ? estimatedValue : BigDecimal.ZERO.setScale(4);
+        Long sellable = null;
+        if ("BUY".equals(side) && reservation != null && account.getAvailableBalance().compareTo(reservation) < 0) {
+            errors.add("Insufficient available virtual funds");
+        } else if ("SELL".equals(side)) {
+            Position position = positionRepository.findByAccount_IdAndInstrument_IdAndTradingMode(
+                    account.getId(), instrument.getId(), mode).orElse(null);
+            sellable = position == null ? 0L : position.getQuantity() - position.getReservedQuantity();
+            if (sellable < request.quantity()) errors.add(position == null
+                    ? "No sellable position exists for this instrument and mode"
+                    : "Insufficient sellable position quantity");
+        }
+        List<String> riskFailures = estimatedValue == null ? List.of()
+                : riskLimitFailures(account, instrument, request.quantity(), estimatedValue, now);
+        errors.addAll(riskFailures);
+        return previewResult(errors.isEmpty(), errors, exchange, symbol, side, type, mode, request.quantity(),
+                eligiblePrice, estimatedValue, reservation, sellable, riskFailures, freshness, age, session, marketStatus);
+    }
+
+    private static OrderPreviewResponse previewResult(boolean valid, List<String> errors, String exchange,
+            String symbol, String side, String type, String mode, long quantity, BigDecimal eligiblePrice,
+            BigDecimal estimatedValue, BigDecimal reservation, Long sellable, List<String> riskFailures,
+            String freshness, Long age, String session, String marketStatus) {
+        return new OrderPreviewResponse(valid, List.copyOf(errors), exchange, symbol, side, type, mode,
+                quantity, eligiblePrice, estimatedValue, reservation, sellable, List.copyOf(riskFailures),
+                freshness, age, session, marketStatus);
+    }
+
+    private String sessionState(Instant now, String quoteMarketStatus) {
+        if (!marketHoursPolicy.isRegularSession(now)) return "CLOSED";
+        return "OPEN".equals(quoteMarketStatus) ? "ELIGIBLE" : "CLOSED";
+    }
+
+    private static BigDecimal referencePrice(OrderPlacementRequest request, String side, String orderType,
+            MarketQuote quote) {
+        return switch (orderType) {
+            case "LIMIT" -> request.limitPrice();
+            case "STOP_MARKET" -> "BUY".equals(side)
+                    ? quote.getLastPrice().max(request.triggerPrice()) : quote.getLastPrice();
+            default -> quote.getLastPrice();
+        };
+    }
+
+    @Transactional
+    public OrderHistoryResponse modifyPendingOrder(String authenticatedEmail, java.util.UUID orderId,
+            OrderModificationRequest request) {
+        Instant now = Instant.now();
+        // Match execution/cancellation lock order: order, then account, then position.
+        TradingOrder order = orderRepository.findByIdForUpdate(orderId)
+                .orElseThrow(() -> notFound("Order was not found"));
+        if (!order.getAccount().getUser().getEmail().equals(authenticatedEmail.trim().toLowerCase(Locale.ROOT))) {
+            throw notFound("Order was not found");
+        }
+        if (!PENDING.equals(order.getStatus())) throw conflict("Only pending orders can be modified");
+        if ("MARKET".equals(order.getOrderType())) {
+            throw conflict("MARKET orders have no mutable fields");
+        }
+        if (request == null) throw badRequest("A modification request is required");
+        if (request.quantity() == null && request.limitPrice() == null && request.triggerPrice() == null) {
+            throw badRequest("At least one mutable order field is required");
+        }
+
+        long quantity = request.quantity() == null ? order.getRequestedQuantity() : request.quantity();
+        BigDecimal limitPrice = order.getLimitPrice();
+        BigDecimal triggerPrice = order.getTriggerPrice();
+        if ("LIMIT".equals(order.getOrderType())) {
+            if (request.triggerPrice() != null) throw badRequest("triggerPrice cannot be modified on a LIMIT order");
+            if (request.limitPrice() != null) limitPrice = request.limitPrice();
+        } else if ("STOP_MARKET".equals(order.getOrderType())) {
+            if (request.limitPrice() != null) throw badRequest("limitPrice cannot be modified on a STOP_MARKET order");
+            if (request.triggerPrice() != null) triggerPrice = request.triggerPrice();
+        } else {
+            throw conflict("Order type does not support modification");
+        }
+
+        OrderPlacementRequest fields = new OrderPlacementRequest(order.getInstrument().getExchange(),
+                order.getInstrument().getSymbol(), order.getSide(), order.getOrderType(), order.getTradingMode(),
+                quantity, limitPrice, triggerPrice);
+        validateOrderFields(fields, order.getSide(), order.getOrderType(), order.getTradingMode());
+
+        TradingAccount account = accountRepository.findByIdForUpdate(order.getAccount().getId())
+                .orElseThrow(() -> notFound("Trading account was not found"));
+        if (!"ACTIVE".equals(account.getStatus())) throw conflict("Trading account is not active");
+        MarketQuote quote = quoteRepository.findByInstrument_Id(order.getInstrument().getId())
+                .orElseThrow(() -> unprocessable("A current market quote is required"));
+        validateQuote(quote, now);
+
+        BigDecimal referencePrice = switch (order.getOrderType()) {
+            case "LIMIT" -> limitPrice;
+            case "STOP_MARKET" -> "BUY".equals(order.getSide())
+                    ? quote.getLastPrice().max(triggerPrice)
+                    : quote.getLastPrice();
+            default -> throw conflict("Order type does not support modification");
+        };
+        BigDecimal riskValue = referencePrice.multiply(BigDecimal.valueOf(quantity))
+                .setScale(4, RoundingMode.CEILING);
+        validateRiskLimits(account, order.getInstrument(), quantity, riskValue, now);
+
+        if (quantity == order.getRequestedQuantity()
+                && samePrice(limitPrice, order.getLimitPrice())
+                && samePrice(triggerPrice, order.getTriggerPrice())) {
+            return OrderHistoryResponse.from(order);
+        }
+
+        BigDecimal newReservedAmount = "BUY".equals(order.getSide()) ? riskValue : BigDecimal.ZERO.setScale(4);
+        BigDecimal reservationChange = newReservedAmount.subtract(order.getReservedAmount());
+        Position sellPosition = null;
+        long quantityChange = quantity - order.getRemainingQuantity();
+        if ("BUY".equals(order.getSide())) {
+            if (reservationChange.signum() > 0) {
+                if (account.getAvailableBalance().compareTo(reservationChange) < 0) {
+                    throw unprocessable("Insufficient available virtual funds for the modified order");
+                }
+                account.reserveFunds(reservationChange, now);
+            } else if (reservationChange.signum() < 0) {
+                account.releaseReservedFunds(reservationChange.negate(), now);
+            }
+        } else {
+            sellPosition = positionRepository.findForUpdate(account.getId(), order.getInstrument().getId(),
+                            order.getTradingMode())
+                    .orElseThrow(() -> conflict("Reserved sell position was not found"));
+            if (quantityChange > 0) {
+                if (sellPosition.getQuantity() - sellPosition.getReservedQuantity() < quantityChange) {
+                    throw unprocessable("Insufficient sellable position quantity for the modified order");
+                }
+                sellPosition.reserve(quantityChange, now);
+            } else if (quantityChange < 0) {
+                sellPosition.releaseReservation(-quantityChange, now);
+            }
+        }
+
+        long oldQuantity = order.getRequestedQuantity();
+        BigDecimal oldLimitPrice = order.getLimitPrice();
+        BigDecimal oldTriggerPrice = order.getTriggerPrice();
+        order.modifyPending(quantity, limitPrice, triggerPrice, newReservedAmount, now);
+        orderRepository.saveAndFlush(order);
+        String reason = "Order modified: quantity " + oldQuantity + " -> " + quantity
+                + ", limitPrice " + oldLimitPrice + " -> " + limitPrice
+                + ", triggerPrice " + oldTriggerPrice + " -> " + triggerPrice;
+        orderEventRepository.saveAndFlush(new OrderEvent(order, PENDING, PENDING, "ORDER_MODIFIED", reason, now));
+        auditService.record(authenticatedEmail, "ORDER_MODIFIED", "ORDER", order.getId(),
+                "{\"quantity\":" + quantity + "}");
+        return OrderHistoryResponse.from(order);
+    }
+
+    private static boolean samePrice(BigDecimal first, BigDecimal second) {
+        return first == null ? second == null : second != null && first.compareTo(second) == 0;
     }
 
     private static void validateOrderFields(OrderPlacementRequest request, String side,
@@ -217,34 +407,44 @@ public class OrderPlacementService {
     }
 
     private static void validateQuote(MarketQuote quote, Instant now) {
+        if (!quoteIsEligible(quote, now)) throw unprocessable("Market quote is stale or unavailable");
+    }
+
+    private static boolean quoteIsEligible(MarketQuote quote, Instant now) {
         Instant updatedAt = quote.getProviderUpdatedAt();
-        if (!"LIVE".equals(quote.getDataStatus()) || quote.getReceivedAt() == null || updatedAt == null
-                || updatedAt.isBefore(now.minus(MAX_QUOTE_AGE)) || updatedAt.isAfter(now)
-                || quote.getLastPrice() == null || quote.getLastPrice().signum() <= 0) {
-            throw unprocessable("Market quote is stale or unavailable");
-        }
+        return "LIVE".equals(quote.getDataStatus()) && quote.getReceivedAt() != null && updatedAt != null
+                && !updatedAt.isBefore(now.minus(MAX_QUOTE_AGE)) && !updatedAt.isAfter(now)
+                && quote.getLastPrice() != null && quote.getLastPrice().signum() > 0;
     }
 
     private void validateRiskLimits(TradingAccount account, Instrument instrument, long quantity,
             BigDecimal orderValue, Instant now) {
+        List<String> failures = riskLimitFailures(account, instrument, quantity, orderValue, now);
+        if (!failures.isEmpty()) throw unprocessable(failures.get(0));
+    }
+
+    private List<String> riskLimitFailures(TradingAccount account, Instrument instrument, long quantity,
+            BigDecimal orderValue, Instant now) {
+        List<String> failures = new ArrayList<>();
         for (RiskLimit risk : riskLimitRepository.findApplicable(account.getId(), instrument.getId(), now)) {
             String type = normalized(risk.getLimitType());
             switch (type) {
                 case "TRADING_DISABLED", "INSTRUMENT_BLOCKED" ->
-                        throw unprocessable("Trading is restricted by an active risk limit");
+                        failures.add("Trading is restricted by an active risk limit");
                 case "MAX_ORDER_QUANTITY" -> {
                     if (BigDecimal.valueOf(quantity).compareTo(risk.getLimitValue()) > 0) {
-                        throw unprocessable("Order quantity exceeds the active risk limit");
+                        failures.add("Order quantity exceeds the active risk limit");
                     }
                 }
                 case "MAX_ORDER_AMOUNT", "MAX_ORDER_VALUE" -> {
                     if (orderValue.compareTo(risk.getLimitValue()) > 0) {
-                        throw unprocessable("Order value exceeds the active risk limit");
+                        failures.add("Order value exceeds the active risk limit");
                     }
                 }
-                default -> throw unprocessable("An unsupported active risk limit prevents order placement");
+                default -> failures.add("An unsupported active risk limit prevents order placement");
             }
         }
+        return List.copyOf(failures);
     }
 
     private static String normalizeIdempotencyKey(String key) {

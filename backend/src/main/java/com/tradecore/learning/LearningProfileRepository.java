@@ -3,6 +3,7 @@ package com.tradecore.learning;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.Collection;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -16,4 +17,8 @@ public interface LearningProfileRepository extends JpaRepository<LearningProfile
     @EntityGraph(attributePaths = "instrument")
     @Query("select p from LearningProfile p where p.instrument.exchange = 'NSE' and p.instrument.symbol = :symbol")
     Optional<LearningProfile> findNseProfileBySymbol(@Param("symbol") String symbol);
+
+    @EntityGraph(attributePaths = "instrument")
+    @Query("select p from LearningProfile p where p.instrument.exchange = 'NSE' and p.instrument.symbol in :symbols")
+    List<LearningProfile> findNseProfilesBySymbols(@Param("symbols") Collection<String> symbols);
 }

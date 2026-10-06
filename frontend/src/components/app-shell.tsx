@@ -11,6 +11,7 @@ const links = [
   ["Dashboard", "/"],
   ["Markets", "/markets"],
   ["Strategy Lab", "/strategy-lab"],
+  ["Compare", "/compare"],
   ["Portfolio", "/portfolio"],
   ["Performance", "/performance"],
   ["Risk", "/risk"],

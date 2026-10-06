@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { api, formatMoney, type Quote } from "@/lib/api";
+import { api, formatMoney, type OrderPreview, type PlaceOrderRequest, type Quote } from "@/lib/api";
 import { useApiQuery } from "@/lib/use-api-query";
 import { EmptyState, ErrorState, LoadingState, PageHeading, StatusBadge } from "@/components/page-states";
 import { useAuth } from "@/lib/auth-context";
@@ -69,8 +69,25 @@ function OrderPanel({ exchange, symbol, credential }: { exchange: string; symbol
   const [limitPrice, setLimitPrice] = useState("");
   const [triggerPrice, setTriggerPrice] = useState("");
   const [sending, setSending] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
+  const [preview, setPreview] = useState<OrderPreview | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [placed, setPlaced] = useState<PlacedOrder | null>(null);
+
+  function orderRequest(): PlaceOrderRequest {
+    return { exchange, symbol, side, orderType, tradingMode, quantity: Number(quantity),
+      ...(orderType === "LIMIT" ? { limitPrice: Number(limitPrice) } : {}),
+      ...(orderType === "STOP_MARKET" ? { triggerPrice: Number(triggerPrice) } : {}) };
+  }
+
+  async function runPreview() {
+    if (!credential) return;
+    setPreviewing(true); setPreviewError(null); setPreview(null);
+    try { setPreview(await api.previewOrder(credential, orderRequest())); }
+    catch (cause) { setPreviewError((cause as ApiError).message || "The order preview could not be loaded."); }
+    finally { setPreviewing(false); }
+  }
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -79,17 +96,7 @@ function OrderPanel({ exchange, symbol, credential }: { exchange: string; symbol
     setError(null);
     setPlaced(null);
     try {
-      const body = {
-        exchange,
-        symbol,
-        side,
-        orderType,
-        tradingMode,
-        quantity: Number(quantity),
-        ...(orderType === "LIMIT" ? { limitPrice: Number(limitPrice) } : {}),
-        ...(orderType === "STOP_MARKET" ? { triggerPrice: Number(triggerPrice) } : {}),
-      };
-      setPlaced(await api.placeOrder(credential, body));
+      setPlaced(await api.placeOrder(credential, orderRequest()));
     } catch (cause) {
       const requestError = cause as ApiError;
       setError(requestError.message || "The order could not be placed.");
@@ -109,8 +116,18 @@ function OrderPanel({ exchange, symbol, credential }: { exchange: string; symbol
         {orderType === "LIMIT" && <label>Limit price (INR)<input type="number" min="0.000001" step="0.000001" required value={limitPrice} onChange={(event) => setLimitPrice(event.target.value)} /></label>}
         {orderType === "STOP_MARKET" && <label>Trigger price (INR)<input type="number" min="0.000001" step="0.000001" required value={triggerPrice} onChange={(event) => setTriggerPrice(event.target.value)} /></label>}
         {orderType === "STOP_MARKET" && <p className="panel-footnote">A STOP_MARKET order remains pending until its trigger condition is reached using an eligible persisted quote. BUY triggers at or above the trigger price; SELL triggers at or below it. When triggered, it executes using the current eligible quote and is not guaranteed to fill at the trigger price.</p>}
-        <button type="submit" className="primary-button" disabled={sending}>{sending ? "Sending…" : "Place paper order"}</button>
+        <div className="button-row"><button type="button" className="secondary-button" onClick={runPreview} disabled={previewing || sending}>{previewing ? "Checking..." : "Preview order"}</button><button type="submit" className="primary-button" disabled={sending}>{sending ? "Sending..." : "Place paper order"}</button></div>
       </form>
+      {previewError && <p className="notice notice-stale order-message" role="alert">{previewError}</p>}
+      {preview && <div className={`notice order-message ${preview.valid ? "notice-success" : "notice-stale"}`} role="status">
+        <strong>{preview.valid ? "Current preview is valid" : "Preview found validation issues"}</strong>
+        <span>Quote: {preview.quoteFreshnessStatus}. Current eligible price: {formatMoney(preview.currentEligiblePrice)}. Estimated order value: {formatMoney(preview.estimatedOrderValue)}.</span>
+        {preview.side === "BUY" && <span>Estimated funds reservation: {formatMoney(preview.estimatedBuyReservation)}.</span>}
+        {preview.side === "SELL" && <span>Currently sellable quantity: {preview.sellableQuantity ?? "Unavailable"}.</span>}
+        <span>Market session: {preview.marketSessionEligibility} ({preview.marketSessionStatus}).</span>
+        {[...new Set([...preview.validationErrors, ...preview.applicableRiskLimitFailures])].length > 0 && <ul>{[...new Set([...preview.validationErrors, ...preview.applicableRiskLimitFailures])].map((item) => <li key={item}>{item}</li>)}</ul>}
+        <small>Preview is read-only. Placement revalidates the order and may differ if account, risk, quote, or session data changes.</small>
+      </div>}
       {error && <p className="notice notice-stale order-message" role="alert">{error}</p>}
       {placed && <div className="notice notice-success order-message" role="status"><strong>Order placed · {placed.status}</strong><span>{placed.side} {placed.requestedQuantity} {placed.symbol} · {placed.orderType} · {placed.tradingMode}. It remains pending and has not been executed.</span><Link href="/orders">View orders</Link></div>}
     </>}

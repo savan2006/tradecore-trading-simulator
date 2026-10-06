@@ -9,10 +9,12 @@ import static org.mockito.Mockito.when;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.core.env.MapPropertySource;
@@ -82,6 +84,19 @@ class MarketDataRefreshSchedulerTest {
 
         scheduler.runQuoteRefresh(at("2026-10-05T16:00:00"));
 
+        verifyNoInteractions(ingestion);
+    }
+
+    @Test
+    void configuredHolidayBlocksQuoteRefresh() {
+        MarketDataIngestionService ingestion = mock(MarketDataIngestionService.class);
+        MarketSessionRepository calendar = mock(MarketSessionRepository.class);
+        LocalDate holiday = LocalDate.parse("2026-10-05");
+        when(calendar.findByTradingDateAndActiveTrue(holiday)).thenReturn(Optional.of(
+                new MarketSession(holiday, true, null, null, "test holiday")));
+        MarketDataRefreshProperties properties = new MarketDataRefreshProperties();
+        MarketHoursPolicy policy = new MarketHoursPolicy(properties, calendar);
+        new MarketDataRefreshScheduler(ingestion, properties, policy).runQuoteRefresh(at("2026-10-05T10:00:00"));
         verifyNoInteractions(ingestion);
     }
 

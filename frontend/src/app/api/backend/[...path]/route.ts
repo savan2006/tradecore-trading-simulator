@@ -4,7 +4,7 @@ export const dynamic = "force-dynamic";
 
 type RouteContext = { params: Promise<{ path: string[] }> };
 
-async function forward(request: NextRequest, context: RouteContext, method: "GET" | "POST") {
+async function forward(request: NextRequest, context: RouteContext, method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE") {
   const authorization = request.headers.get("authorization");
   const { path } = await context.params;
   if (path.length === 0 || path.some((segment) => segment === ".." || segment.includes("\\"))) {
@@ -23,13 +23,13 @@ async function forward(request: NextRequest, context: RouteContext, method: "GET
       headers: {
         ...(authorization ? { Authorization: authorization } : {}),
         Accept: "application/json",
-        ...(method === "POST" ? { "Content-Type": "application/json" } : {}),
+        ...(request.headers.get("content-type") ? { "Content-Type": request.headers.get("content-type")! } : {}),
       },
-      ...(method === "POST" ? { body: await request.text() } : {}),
+      ...(method !== "GET" && method !== "DELETE" ? { body: await request.text() } : {}),
       cache: "no-store",
       redirect: "manual",
     });
-    return new NextResponse(await response.text(), {
+    return new NextResponse(response.status === 204 || response.status === 304 ? null : await response.arrayBuffer(), {
       status: response.status,
       headers: {
         "content-type": response.headers.get("content-type") ?? "application/json",
@@ -47,4 +47,16 @@ export async function GET(request: NextRequest, context: RouteContext) {
 
 export async function POST(request: NextRequest, context: RouteContext) {
   return forward(request, context, "POST");
+}
+
+export async function PUT(request: NextRequest, context: RouteContext) {
+  return forward(request, context, "PUT");
+}
+
+export async function PATCH(request: NextRequest, context: RouteContext) {
+  return forward(request, context, "PATCH");
+}
+
+export async function DELETE(request: NextRequest, context: RouteContext) {
+  return forward(request, context, "DELETE");
 }

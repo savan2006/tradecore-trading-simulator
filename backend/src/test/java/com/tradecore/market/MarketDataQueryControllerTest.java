@@ -170,6 +170,34 @@ class MarketDataQueryControllerTest {
         verifyNoInteractions(provider);
     }
 
+    @Test
+    void screensSupportedCompaniesUsingPersistedQuotesAndCandlesOnly() throws Exception {
+        mockMvc.perform(get("/api/v1/market/screener"))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(auth(get("/api/v1/market/screener").param("search", "tcs").param("limit", "1")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].symbol").value("TCS"))
+                .andExpect(jsonPath("$[0].freshnessStatus").value("LIVE"))
+                .andExpect(jsonPath("$[0].fiftyTwoWeekHigh").value(4025))
+                .andExpect(jsonPath("$[0].fiftyTwoWeekLow").value(3600))
+                .andExpect(jsonPath("$[0].volatilityPercent").exists());
+
+        mockMvc.perform(auth(get("/api/v1/market/screener").param("sort", "HIGHEST_VOLUME").param("limit", "2")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].symbol").value("TCS"));
+
+        mockMvc.perform(auth(get("/api/v1/market/screener").param("search", "NOTREAL")))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(0));
+        mockMvc.perform(auth(get("/api/v1/market/screener").param("limit", "81")))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(auth(get("/api/v1/market/screener").param("sort", "UNKNOWN")))
+                .andExpect(status().isBadRequest());
+        verifyNoInteractions(provider);
+    }
+
     private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder auth(
             org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder request) {
         String credentials = Base64.getEncoder().encodeToString(

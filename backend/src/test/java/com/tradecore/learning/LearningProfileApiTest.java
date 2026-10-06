@@ -49,14 +49,19 @@ class LearningProfileApiTest {
     @Autowired private UserRegistrationService registration;
     @MockitoSpyBean private MarketDataProvider provider;
     private String email;
+    private UUID accountId;
 
     @BeforeEach
     void setUp() {
-        email = registration.register(new RegistrationRequest("learning-" + UUID.randomUUID() + "@example.invalid",
-                PASSWORD, "Learning Test")).email();
+        var registered = registration.register(new RegistrationRequest("learning-" + UUID.randomUUID() + "@example.invalid",
+                PASSWORD, "Learning Test"));
+        email = registered.email();
+        accountId = registered.accountId();
         UUID instrumentId = instrumentId("TCS");
         jdbc.update("delete from market_quote where instrument_id=?", instrumentId);
-        jdbc.update("delete from market_candle where instrument_id=?", instrumentId);
+        for (String symbol : List.of("TCS", "INFY", "HCLTECH", "RELIANCE", "HDFCBANK")) {
+            jdbc.update("delete from market_candle where instrument_id=?", instrumentId(symbol));
+        }
         clearInvocations(provider);
     }
 
@@ -165,6 +170,109 @@ class LearningProfileApiTest {
         verifyNoInteractions(provider);
     }
 
+    @Test
+    void comparesTwoCompaniesAndCalculatesReturnsVolatilityDrawdownAndIndexedSeries() throws Exception {
+        LocalDate from = LocalDate.of(2024, 1, 2);
+        LocalDate to = LocalDate.of(2024, 1, 5);
+        putCloseSeries("TCS", from, List.of("100", "110", "99", "121"));
+        putCloseSeries("INFY", from, List.of("200", "220", "210", "231"));
+        List<Long> before = domainTableCounts();
+        var accountBefore = jdbc.queryForMap("select available_balance,reserved_balance,updated_at,version "
+                + "from trading_account where id=?", accountId);
+
+        mvc.perform(get("/api/v1/learning/compare").param("symbols", "TCS,INFY")
+                        .param("from", from.toString()).param("to", to.toString()).header("Authorization", basic()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.companies.length()").value(2))
+                .andExpect(jsonPath("$.companies[0].symbol").value("TCS"))
+                .andExpect(jsonPath("$.companies[0].companyName").value("Tata Consultancy Services Limited"))
+                .andExpect(jsonPath("$.companies[0].sector").value("Information Technology"))
+                .andExpect(jsonPath("$.companies[0].startClose").value(100.0))
+                .andExpect(jsonPath("$.companies[0].endClose").value(121.0))
+                .andExpect(jsonPath("$.companies[0].absoluteReturn").value(21.0))
+                .andExpect(jsonPath("$.companies[0].percentageReturn").value(21.0))
+                .andExpect(jsonPath("$.companies[0].maximumDrawdownPercent").value(10.0))
+                .andExpect(jsonPath("$.companies[0].annualizedVolatilityPercent").isNumber())
+                .andExpect(jsonPath("$.companies[0].numberOfTradingDays").value(4))
+                .andExpect(jsonPath("$.companies[0].latestAvailableCandleDate").value("2024-01-05"))
+                .andExpect(jsonPath("$.indexedSeries[0].points[0].indexedValue").value(100.0))
+                .andExpect(jsonPath("$.indexedSeries[0].points[3].indexedValue").value(121.0));
+        assertThat(domainTableCounts()).isEqualTo(before);
+        assertThat(jdbc.queryForMap("select available_balance,reserved_balance,updated_at,version "
+                + "from trading_account where id=?", accountId)).isEqualTo(accountBefore);
+        verifyNoInteractions(provider);
+    }
+
+    @Test
+    void comparesFourCompaniesAndReturnsEachBusinessProfile() throws Exception {
+        LocalDate from = LocalDate.of(2024, 2, 5);
+        putCloseSeries("TCS", from, List.of("100", "102", "101"));
+        putCloseSeries("INFY", from, List.of("200", "198", "205"));
+        putCloseSeries("HCLTECH", from, List.of("300", "315", "312"));
+        putCloseSeries("RELIANCE", from, List.of("2500", "2480", "2510"));
+        mvc.perform(get("/api/v1/learning/compare").param("symbols", "TCS,INFY,HCLTECH,RELIANCE")
+                        .param("from", from.toString()).param("to", from.plusDays(2).toString())
+                        .header("Authorization", basic()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.companies.length()").value(4))
+                .andExpect(jsonPath("$.indexedSeries.length()").value(4))
+                .andExpect(jsonPath("$.companies[2].businessType").isNotEmpty())
+                .andExpect(jsonPath("$.companies[3].businessDescription").isNotEmpty())
+                .andExpect(jsonPath("$.indexedSeries[3].points[0].indexedValue").value(100.0));
+        verifyNoInteractions(provider);
+    }
+
+    @Test
+    void unsupportedSymbolsAndInvalidDateRangesAreRejected() throws Exception {
+        LocalDate from = LocalDate.of(2024, 1, 1);
+        String auth = basic();
+        mvc.perform(get("/api/v1/learning/compare").param("symbols", "TCS,NOTREAL")
+                        .param("from", from.toString()).param("to", from.plusDays(1).toString()).header("Authorization", auth))
+                .andExpect(status().isNotFound());
+        mvc.perform(get("/api/v1/learning/compare").param("symbols", "TCS,TCS")
+                        .param("from", from.toString()).param("to", from.plusDays(1).toString()).header("Authorization", auth))
+                .andExpect(status().isBadRequest());
+        mvc.perform(get("/api/v1/learning/compare").param("symbols", "TCS")
+                        .param("from", from.toString()).param("to", from.plusDays(1).toString()).header("Authorization", auth))
+                .andExpect(status().isBadRequest());
+        mvc.perform(get("/api/v1/learning/compare").param("symbols", "TCS,INFY,HCLTECH,RELIANCE,HDFCBANK")
+                        .param("from", from.toString()).param("to", from.plusDays(1).toString()).header("Authorization", auth))
+                .andExpect(status().isBadRequest());
+        mvc.perform(get("/api/v1/learning/compare").param("symbols", "TCS,INFY")
+                        .param("from", from.plusDays(1).toString()).param("to", from.toString()).header("Authorization", auth))
+                .andExpect(status().isBadRequest());
+        mvc.perform(get("/api/v1/learning/compare").param("symbols", "TCS,INFY")
+                        .param("from", from.toString()).param("to", LocalDate.now(EXCHANGE_ZONE).plusDays(1).toString())
+                        .header("Authorization", auth)).andExpect(status().isBadRequest());
+        mvc.perform(get("/api/v1/learning/compare").param("symbols", "TCS,INFY")
+                        .param("from", "bad-date").param("to", from.toString()).header("Authorization", auth))
+                .andExpect(status().isBadRequest());
+        mvc.perform(get("/api/v1/learning/compare").param("symbols", "TCS,INFY")
+                        .param("from", from.minusYears(6).toString()).param("to", from.toString()).header("Authorization", auth))
+                .andExpect(status().isBadRequest());
+        verifyNoInteractions(provider);
+    }
+
+    @Test
+    void reportsInsufficientHistoryPerCompanyAndRequiresAuthentication() throws Exception {
+        LocalDate from = LocalDate.of(2024, 3, 1);
+        putCandle(instrumentId("TCS"), from, "100", "101");
+        mvc.perform(get("/api/v1/learning/compare").param("symbols", "TCS,INFY")
+                        .param("from", from.toString()).param("to", from.plusDays(2).toString()).header("Authorization", basic()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.companies[0].insufficientHistoricalData").value(true))
+                .andExpect(jsonPath("$.companies[0].numberOfTradingDays").value(1))
+                .andExpect(jsonPath("$.companies[0].percentageReturn").doesNotExist())
+                .andExpect(jsonPath("$.companies[0].dataNote").isNotEmpty())
+                .andExpect(jsonPath("$.companies[1].numberOfTradingDays").value(0))
+                .andExpect(jsonPath("$.companies[1].latestAvailableCandleDate").doesNotExist())
+                .andExpect(jsonPath("$.indexedSeries[1].points.length()").value(0));
+        mvc.perform(get("/api/v1/learning/compare").param("symbols", "TCS,INFY")
+                        .param("from", from.toString()).param("to", from.plusDays(2).toString()))
+                .andExpect(status().isUnauthorized());
+        verifyNoInteractions(provider);
+    }
+
     private List<Long> domainTableCounts() {
         return List.of(count("trading_account"), count("ledger_entry"), count("trading_order"),
                 count("execution"), count("position"), count("market_quote"), count("market_candle"));
@@ -192,6 +300,22 @@ class LearningProfileApiTest {
         putCandle(instrumentId, LocalDate.now(EXCHANGE_ZONE).minusDays(3), "90", "95");
         putCandle(instrumentId, LocalDate.now(EXCHANGE_ZONE).minusDays(2), "96", "100");
         putCandle(instrumentId, LocalDate.now(EXCHANGE_ZONE).minusDays(1), "101", "108");
+    }
+
+    private void putCloseSeries(String symbol, LocalDate from, List<String> closes) {
+        UUID id = instrumentId(symbol);
+        jdbc.update("delete from market_candle where instrument_id=?", id);
+        for (int index = 0; index < closes.size(); index++) {
+            LocalDate date = from.plusDays(index);
+            BigDecimal close = new BigDecimal(closes.get(index));
+            BigDecimal open = index == 0 ? close : new BigDecimal(closes.get(index - 1));
+            BigDecimal high = open.max(close);
+            BigDecimal low = open.min(close);
+            jdbc.update("insert into market_candle (id,instrument_id,resolution,bucket_start,open_price,high_price,low_price,"
+                            + "close_price,volume,created_at) values (?,?,'1D',?,?,?,?,?,?,?)",
+                    UUID.randomUUID(), id, Timestamp.from(date.atStartOfDay(EXCHANGE_ZONE).toInstant()),
+                    open, high, low, close, 100L, Timestamp.from(Instant.now()));
+        }
     }
 
     private void putCandle(UUID instrumentId, LocalDate date, String open, String close) {

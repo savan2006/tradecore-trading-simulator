@@ -2,62 +2,53 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { api, formatMoney, type LearningProfile, type Quote } from "@/lib/api";
+import { api, formatMoney, type MarketScreenerRow, type Quote } from "@/lib/api";
 import { useApiQuery } from "@/lib/use-api-query";
 import { EmptyState, ErrorState, LoadingState, PageHeading, StatusBadge } from "@/components/page-states";
 
-type MarketQuote = Quote & {
-  open: number | null;
-  high: number | null;
-  low: number | null;
-  volume: number | null;
-};
-
-type MarketsData = { companies: LearningProfile[]; quotes: MarketQuote[] | null; quoteError: string | null };
+type MarketQuote = Quote & { open: number | null; high: number | null; low: number | null; volume: number | null };
 type StreamStatus = "connecting" | "live" | "reconnecting" | "unavailable";
+type ScreenData = { rows: MarketScreenerRow[] };
+const sortOptions = ["DEFAULT", "TOP_GAINERS", "TOP_LOSERS", "HIGHEST_VOLUME", "HIGHEST_VOLATILITY", "NEAR_52_WEEK_HIGH", "NEAR_52_WEEK_LOW"];
 
 export default function MarketsPage() {
-  const load = useCallback(loadMarkets, []);
+  const [search, setSearch] = useState("");
+  const [appliedSearch, setAppliedSearch] = useState("");
+  const [sector, setSector] = useState("");
+  const [sort, setSort] = useState("DEFAULT");
+  useEffect(() => {
+    const timer = setTimeout(() => setAppliedSearch(search.trim()), 250);
+    return () => clearTimeout(timer);
+  }, [search]);
+  const load = useCallback(async (credential: string, signal: AbortSignal): Promise<ScreenData> => ({
+    rows: await api.marketScreener(credential, { search: appliedSearch, sector, sort, limit: 80 }, signal),
+  }), [appliedSearch, sector, sort]);
   const { data, error, loading } = useApiQuery(load);
-  const symbols = useMemo(() => data?.companies.map((company) => company.symbol) ?? [], [data]);
+  const symbols = useMemo(() => data?.rows.map((row) => row.symbol) ?? [], [data]);
   const stream = useMarketQuoteStream(symbols);
-  const initialQuotes = useMemo(() => new Map((data?.quotes ?? []).map((quote) => [quote.symbol, quote])), [data]);
-
+  const sectors = [...new Set(data?.rows.map((item) => item.sector).filter((value): value is string => Boolean(value)) ?? [])].sort();
   return <div className="content-wrap">
-    <PageHeading eyebrow="Learning universe" title="Markets" description="Explore supported companies and business context alongside persisted market quotes that refresh automatically." />
-    {loading ? <LoadingState label="Loading supported companies and persisted quotes…" /> : error ? <ErrorState message={error.message} /> : !data?.companies.length ? <EmptyState message="No learning profiles are available yet." /> : <>
-      <div className="section-summary"><strong>{data.companies.length} supported companies</strong><span className="market-stream-status"><StatusBadge status={stream.status.toUpperCase()} />Quote stream {stream.status === "live" ? "connected" : stream.status === "reconnecting" ? "reconnecting" : stream.status === "connecting" ? "connecting" : "unavailable"}</span></div>
-      {(data.quoteError || stream.message) && <div className="notice notice-muted" role="status">{data.quoteError && <span>Initial REST quotes could not be loaded: {data.quoteError}</span>}{stream.message && <span>{stream.message}</span>}</div>}
-      <section className="company-grid">{data.companies.map((company) => {
-        const quote = stream.quotes[company.symbol] ?? initialQuotes.get(company.symbol) ?? null;
-        return <Link className="company-card" href={`/companies/${encodeURIComponent(company.symbol)}`} key={company.symbol}>
-          <span className="company-symbol">{company.symbol}</span><span className="company-sector">{company.sector}</span><strong>{company.companyName}</strong><span className="muted">{company.businessType}</span>
-          <div className="market-card-quote">
-            <div className="market-card-quote-heading"><strong>LTP {formatMoney(quote?.lastPrice)}</strong><StatusBadge status={quote?.dataStatus ?? "UNAVAILABLE"} /></div>
-            <div className="detail-row"><span>Open / High / Low</span><strong>{formatMoney(quote?.open)} / {formatMoney(quote?.high)} / {formatMoney(quote?.low)}</strong></div>
-            <div className="detail-row"><span>Previous close</span><strong>{formatMoney(quote?.previousClose)}</strong></div>
-            <div className="detail-row"><span>Volume</span><strong>{quote?.volume == null ? "Unavailable" : quote.volume.toLocaleString("en-IN")}</strong></div>
-            <div className="market-provider-time">Provider update: {formatTimestamp(quote?.providerUpdatedTimestamp)}</div>
-          </div>
-          <span className="text-link">Open company overview →</span>
-        </Link>;
-      })}</section>
+    <PageHeading eyebrow="Persisted market data" title="Markets" description="Explore the supported NSE universe using saved quotes and daily candles. Quote updates continue over the existing live stream." />
+    <section className="panel" aria-label="Market screener controls"><div className="form-grid">
+      <label>Search symbol or company<input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="e.g. TCS" maxLength={160} /></label>
+      <label>Sector<select value={sector} onChange={(event) => setSector(event.target.value)}><option value="">All sectors</option>{sectors.map((value) => <option key={value}>{value}</option>)}</select></label>
+      <label>View<select value={sort} onChange={(event) => setSort(event.target.value)}>{sortOptions.map((value) => <option key={value} value={value}>{value.replaceAll("_", " ").toLowerCase()}</option>)}</select></label>
+    </div><div className="section-summary"><span>Results are limited to the approved 80-company universe.</span><span className="market-stream-status"><StatusBadge status={stream.status.toUpperCase()} />Quote stream {stream.status}</span></div></section>
+    {loading ? <LoadingState label="Loading persisted market screen�" /> : error ? <ErrorState message={error.message} /> : !data?.rows.length ? <EmptyState message="No companies match this screen or no supported instruments are available." /> : <>
+      {stream.message && <div className="notice notice-muted" role="status">{stream.message}</div>}
+      <div className="table-scroll"><table><thead><tr><th>Company</th><th>LTP</th><th>Daily change</th><th>Volume</th><th>Volatility*</th><th>52-week range</th><th>Distance from high / low</th><th>Freshness</th></tr></thead><tbody>{data.rows.map((row) => {
+        const live = stream.quotes[row.symbol];
+        const ltp = live?.lastPrice ?? row.ltp;
+        const status = live?.dataStatus ?? row.freshnessStatus;
+        return <tr key={row.symbol}><td><Link href={`/companies/${encodeURIComponent(row.symbol)}`}><strong>{row.symbol}</strong><br />{row.companyName}</Link><small>{row.sector ?? "Sector unavailable"} � {row.category ?? "Category unavailable"}</small></td>
+          <td>{formatMoney(ltp)}</td><td>{row.dailyChangePercent == null ? "Unavailable" : `${row.dailyChangePercent.toFixed(2)}%`}</td>
+          <td>{row.volume == null ? "Unavailable" : row.volume.toLocaleString("en-IN")}</td><td>{row.volatilityPercent == null ? "Insufficient candles" : `${row.volatilityPercent.toFixed(2)}%`}</td>
+          <td>{row.fiftyTwoWeekHigh == null || row.fiftyTwoWeekLow == null ? "Insufficient candles" : `${formatMoney(row.fiftyTwoWeekLow)} � ${formatMoney(row.fiftyTwoWeekHigh)}`}</td>
+          <td>{row.distanceFromFiftyTwoWeekHighPercent == null ? "�" : `${row.distanceFromFiftyTwoWeekHighPercent.toFixed(2)}%`} / {row.distanceFromFiftyTwoWeekLowPercent == null ? "�" : `${row.distanceFromFiftyTwoWeekLowPercent.toFixed(2)}%`}</td><td><StatusBadge status={status} /></td></tr>;
+      })}</tbody></table></div><p className="muted">* Volatility is annualized sample standard deviation of available daily close-to-close returns. Historical metrics use persisted candles only; missing values remain unavailable.</p>
     </>}
   </div>;
 }
-
-async function loadMarkets(credential: string, signal: AbortSignal): Promise<MarketsData> {
-  const companies = await api.learningProfiles(credential, signal);
-  if (companies.length === 0) return { companies, quotes: [], quoteError: null };
-  try {
-    const quotes = await api.quotes(credential, companies.map((company) => company.symbol), signal);
-    return { companies, quotes: quotes as MarketQuote[], quoteError: null };
-  } catch (error) {
-    if (signal.aborted) throw error;
-    return { companies, quotes: null, quoteError: error instanceof Error ? error.message : "The quote request failed." };
-  }
-}
-
 function useMarketQuoteStream(symbols: string[]) {
   const symbolsKey = useMemo(() => [...new Set(symbols)].join(","), [symbols]);
   const [quotes, setQuotes] = useState<Record<string, MarketQuote>>({});

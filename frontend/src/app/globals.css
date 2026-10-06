@@ -194,6 +194,25 @@ td small { margin-top: 4px; }
 .strategy-equity-chart { margin: 12px 0; }
 .strategy-trades { margin-top: 18px; }
 .strategy-trades th, .strategy-trades td { padding: 11px 10px; }
+.comparison-disclaimer { margin-bottom: 18px; }
+.comparison-controls { display: grid; grid-template-columns: minmax(0, 2fr) repeat(2, minmax(150px, 1fr)); align-items: end; gap: 16px; margin-bottom: 16px; }
+.comparison-controls label { display: flex; flex-direction: column; gap: 7px; color: var(--muted); font-size: 12px; }
+.comparison-controls input, .comparison-controls select { width: 100%; min-height: 42px; padding: 9px 11px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink); background: var(--surface); font: inherit; }
+.comparison-company-select { display: grid; gap: 10px; }
+.comparison-label { color: var(--muted); font-size: 12px; }
+.comparison-chips { display: flex; flex-wrap: wrap; gap: 7px; min-height: 31px; }
+.comparison-chip { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; padding: 6px 9px; border-radius: 8px; background: #edf4f1; color: var(--ink); font-size: 11px; }
+.comparison-chip button { border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 16px; cursor: pointer; }
+.comparison-chart { margin: 12px 0; }
+.comparison-chart svg { min-height: 210px; }
+.comparison-legend { display: flex; flex-wrap: wrap; gap: 12px; color: var(--muted); font-size: 11px; }
+.comparison-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.comparison-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
+.comparison-table-panel { margin: 18px 0; }
+.comparison-table-panel td:first-child { min-width: 220px; max-width: 330px; }
+.comparison-table-panel td:first-child small { display: block; margin-top: 4px; color: var(--muted); white-space: normal; }
+.comparison-data-note { color: #8a5424 !important; }
+.comparison-table-panel .panel-footnote { margin-top: 13px; }
 .period-change { margin: 13px 0 0; color: var(--muted); font-size: 11px; }
 .period-change strong { color: var(--ink); }
 .learning-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
@@ -346,6 +365,7 @@ td small { margin-top: 4px; }
   .footer { gap: 12px; font-size: 10px; }
   .panel { padding: 16px; }
   .strategy-form-grid { grid-template-columns: 1fr; }
+  .comparison-controls { grid-template-columns: 1fr; }
   .login-card { padding: 23px; }
   .order-form { grid-template-columns: 1fr; }
   .order-filters { display: grid; grid-template-columns: 1fr; }
@@ -371,4 +391,33 @@ td small { margin-top: 4px; }
   .performance-values { grid-template-columns: 1fr; }
   .admin-refresh-summary { align-items: flex-start; flex-direction: column; gap: 16px; }
   .admin-pagination { flex-direction: column; }
+}
+
+/* Keep dense data usable on narrow screens instead of letting page grids overflow. */
+main, .content-wrap, .panel, .metric-card, .dashboard-grid > *, .company-layout > * { min-width: 0; }
+input, select, textarea, button { max-width: 100%; }
+.table-scroll { max-width: 100%; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; }
+.top-nav { min-width: 0; scrollbar-width: thin; }
+.section-summary { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
+
+@media (max-width: 900px) {
+  .form-grid, .comparison-controls, .journal-form, .risk-limit-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .topbar { gap: 10px 18px; }
+  .top-nav { flex-basis: 100%; order: 3; }
+}
+
+@media (max-width: 620px) {
+  .form-grid, .comparison-controls, .journal-form, .risk-limit-form,
+  .watchlist-form, .alert-form, .admin-filter-form, .admin-order-filters,
+  .audit-filter-form, .strategy-form-grid { grid-template-columns: minmax(0, 1fr); }
+  .panel-heading { align-items: flex-start; flex-wrap: wrap; }
+  .section-summary { align-items: flex-start; flex-direction: column; }
+  .pagination { flex-wrap: wrap; }
+  .footer { flex-wrap: wrap; }
+}
+
+@media (max-width: 380px) {
+  .metric-grid, .portfolio-metrics, .strategy-metrics, .dashboard-actions { grid-template-columns: minmax(0, 1fr); }
+  .content-wrap { width: calc(100% - 24px); }
+  .panel { padding: 13px; }
 }

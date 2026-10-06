@@ -9,6 +9,8 @@ import com.tradecore.order.OrderPlacementService;
 import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
@@ -23,6 +25,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doCallRealMethod;
 
 @SpringBootTest(properties = {
         "spring.datasource.url=jdbc:h2:mem:tradecore-squareoff-test;MODE=PostgreSQL;DB_CLOSE_DELAY=-1;LOCK_TIMEOUT=10000",
@@ -151,6 +154,23 @@ class IntradaySquareOffServiceTest {
         assertPositionOpen(account.id, position, 1);
         assertThat(squareOff.runOnce(AFTER_CLOSE)).isGreaterThanOrEqualTo(1);
         assertThat(jdbc.queryForObject("select quantity from position where id=?", Long.class, position)).isZero();
+    }
+
+    @Test
+    void configuredHolidayDoesNotSquareOffOrMutateFinancialState() {
+        LocalDate today = LocalDate.now(ZoneId.of("Asia/Kolkata"));
+        jdbc.update("insert into market_session (id,trading_date,session_state,holiday,description,active) "
+                        + "values (?,?,'HOLIDAY',true,'test holiday',true)", UUID.randomUUID(), today);
+        doCallRealMethod().when(marketHours).isSessionEnded(any(Instant.class));
+        Account account = account();
+        UUID position = seedPosition(account.id, 3, 0, "100");
+
+        assertThat(squareOff.runOnce(Instant.now())).isZero();
+        assertPositionOpen(account.id, position, 3);
+        assertThat(jdbc.queryForObject("select count(*) from execution where account_id=?", Integer.class, account.id)).isZero();
+        assertThat(jdbc.queryForObject("select count(*) from ledger_entry where account_id=? and entry_type<>'INITIAL_DEPOSIT'",
+                Integer.class, account.id)).isZero();
+        assertThat(jdbc.queryForObject("select count(*) from trading_order where account_id=?", Integer.class, account.id)).isZero();
     }
 
     private Account account() {

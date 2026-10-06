@@ -33,6 +33,9 @@ public interface PositionRepository extends JpaRepository<Position, UUID> {
     Optional<Position> findForUpdate(@Param("accountId") UUID accountId,
             @Param("instrumentId") UUID instrumentId, @Param("tradingMode") String tradingMode);
 
+    Optional<Position> findByAccount_IdAndInstrument_IdAndTradingMode(UUID accountId, UUID instrumentId,
+            String tradingMode);
+
     @Query("select p.id from Position p where p.tradingMode='INTRADAY' and p.quantity > 0 order by p.id asc")
     List<UUID> findOpenIntradayPositionIds();
 

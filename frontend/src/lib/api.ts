@@ -20,6 +20,23 @@ export type Quote = {
   freshnessAgeSeconds: number | null;
 };
 
+export type MarketScreenerRow = {
+  symbol: string;
+  companyName: string;
+  sector: string | null;
+  category: string | null;
+  ltp: number | null;
+  dailyChangePercent: number | null;
+  volume: number | null;
+  volatilityPercent: number | null;
+  fiftyTwoWeekHigh: number | null;
+  fiftyTwoWeekLow: number | null;
+  distanceFromFiftyTwoWeekHighPercent: number | null;
+  distanceFromFiftyTwoWeekLowPercent: number | null;
+  freshnessStatus: string;
+  marketStatus: string;
+};
+
 export type LearningProfile = {
   instrumentId: string;
   exchange: string;
@@ -33,6 +50,31 @@ export type LearningProfile = {
   importantRisks: string[];
   educationalObservations: string[];
   updatedAt: string;
+};
+
+export type CompanyComparison = {
+  from: string;
+  to: string;
+  companies: {
+    symbol: string;
+    companyName: string;
+    sector: string;
+    businessType: string;
+    businessDescription: string;
+    startDate: string | null;
+    startClose: number | null;
+    endDate: string | null;
+    endClose: number | null;
+    absoluteReturn: number | null;
+    percentageReturn: number | null;
+    annualizedVolatilityPercent: number | null;
+    maximumDrawdownPercent: number | null;
+    numberOfTradingDays: number;
+    latestAvailableCandleDate: string | null;
+    insufficientHistoricalData: boolean;
+    dataNote: string | null;
+  }[];
+  indexedSeries: { symbol: string; points: { date: string; indexedValue: number }[] }[];
 };
 
 export type Candle = {
@@ -143,6 +185,7 @@ export type Order = {
   createdAt: string;
   updatedAt: string;
 };
+export type OrderModification = { quantity: number; limitPrice?: number; triggerPrice?: number };
 
 export type OrderPage = { content: Order[]; page: number; size: number; totalElements: number; totalPages: number; hasNext: boolean };
 export type Trade = {
@@ -193,6 +236,25 @@ export type PlacedOrder = PlaceOrderRequest & {
   executedQuantity: number;
   remainingQuantity: number;
   createdAt: string;
+};
+export type OrderPreview = {
+  valid: boolean;
+  validationErrors: string[];
+  exchange: string;
+  symbol: string;
+  side: string;
+  orderType: string;
+  tradingMode: string;
+  quantity: number;
+  currentEligiblePrice: number | null;
+  estimatedOrderValue: number | null;
+  estimatedBuyReservation: number | null;
+  sellableQuantity: number | null;
+  applicableRiskLimitFailures: string[];
+  quoteFreshnessStatus: string;
+  quoteFreshnessAgeSeconds: number | null;
+  marketSessionEligibility: string;
+  marketSessionStatus: string;
 };
 
 export type Watchlist = {
@@ -497,10 +559,19 @@ export const api = {
     write<StrategyBacktest>("POST", "/api/v1/strategy-lab/backtests", basic, input),
   quotes: (basic: string, symbols: string[], signal?: AbortSignal) =>
     request<Quote[]>(`/api/v1/market/quotes?${symbols.map((symbol) => `symbols=${encodeURIComponent(symbol)}`).join("&")}`, basic, signal),
+  marketScreener: (basic: string, options: { search?: string; sector?: string; sort?: string; limit?: number } = {}, signal?: AbortSignal) => {
+    const params = new URLSearchParams();
+    Object.entries(options).forEach(([key, value]) => { if (value != null && value !== "") params.set(key, String(value)); });
+    return request<MarketScreenerRow[]>(`/api/v1/market/screener?${params.toString()}`, basic, signal);
+  },
   learningProfiles: (basic: string, signal?: AbortSignal) =>
     request<LearningProfile[]>("/api/v1/learning/companies", basic, signal),
   companyOverview: (basic: string, symbol: string, signal?: AbortSignal) =>
     request<CompanyOverview>(`/api/v1/learning/companies/${encodeURIComponent(symbol)}/overview`, basic, signal),
+  compareCompanies: (basic: string, symbols: string[], from: string, to: string, signal?: AbortSignal) => {
+    const params = new URLSearchParams({ symbols: symbols.join(","), from, to });
+    return request<CompanyComparison>(`/api/v1/learning/compare?${params.toString()}`, basic, signal);
+  },
   portfolio: (basic: string, signal?: AbortSignal) => request<Portfolio>("/api/v1/portfolio/me", basic, signal),
   orders: (basic: string, options: { page?: number; size?: number; status?: string; symbol?: string } = {}, signal?: AbortSignal) => {
     const params = new URLSearchParams({ page: String(options.page ?? 0), size: String(options.size ?? 20) });
@@ -528,7 +599,11 @@ export const api = {
     write<void>("DELETE", `/api/v1/journal/${encodeURIComponent(id)}`, basic),
   cancelOrder: (basic: string, orderId: string) =>
     mutate<Cancellation>(`/api/v1/orders/${encodeURIComponent(orderId)}/cancel`, basic),
+  modifyOrder: (basic: string, orderId: string, input: OrderModification) =>
+    write<Order>("PUT", `/api/v1/orders/${encodeURIComponent(orderId)}`, basic, input),
   placeOrder: placeOrderRequest,
+  previewOrder: (basic: string, body: PlaceOrderRequest) =>
+    write<OrderPreview>("POST", "/api/v1/orders/preview", basic, body),
   watchlists: (basic: string, signal?: AbortSignal) => request<Watchlist[]>("/api/v1/watchlists", basic, signal),
   createWatchlist: (basic: string, name: string) => write<Watchlist>("POST", "/api/v1/watchlists", basic, { name }),
   renameWatchlist: (basic: string, id: string, name: string) =>

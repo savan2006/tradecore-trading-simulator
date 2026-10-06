@@ -16,9 +16,20 @@ import org.springframework.web.bind.annotation.RestController;
 public class MarketDataQueryController {
 
     private final MarketDataQueryService queryService;
+    private final MarketScreenerService screenerService;
 
-    public MarketDataQueryController(MarketDataQueryService queryService) {
+    public MarketDataQueryController(MarketDataQueryService queryService, MarketScreenerService screenerService) {
         this.queryService = queryService;
+        this.screenerService = screenerService;
+    }
+
+    @GetMapping("/screener")
+    public List<MarketScreenerResponse> screener(
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) String sector,
+            @RequestParam(required = false) String sort,
+            @RequestParam(required = false) Integer limit) {
+        return screenerService.screen(search, sector, sort, limit);
     }
 
     @GetMapping("/instruments")

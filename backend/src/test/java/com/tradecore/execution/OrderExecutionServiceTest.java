@@ -20,6 +20,8 @@ import org.springframework.web.server.ResponseStatusException;
 import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
@@ -29,6 +31,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doCallRealMethod;
 import static org.mockito.Mockito.doThrow;
 
 @SpringBootTest(properties = {
@@ -73,6 +76,25 @@ class OrderExecutionServiceTest {
         assertThat(jdbc.queryForObject("select entry_type from ledger_entry where account_id=? and entry_type<>'INITIAL_DEPOSIT'", String.class, user.account)).isEqualTo("TRADE_DEBIT");
         assertThat(jdbc.queryForObject("select amount from ledger_entry where account_id=? and entry_type='TRADE_DEBIT'", BigDecimal.class, user.account)).isEqualByComparingTo("-202.0000");
         assertEvent(order);
+    }
+
+    @Test
+    void configuredHolidayBlocksExecutionWithoutFinancialMutation() {
+        Account user = account();
+        UUID order = place(user, "BUY", "MARKET", 2, null);
+        LocalDate today = LocalDate.now(ZoneId.of("Asia/Kolkata"));
+        jdbc.update("delete from market_session where trading_date=?", today);
+        jdbc.update("insert into market_session (id,trading_date,session_state,holiday,description,active) "
+                        + "values (?,?,'HOLIDAY',true,'test holiday',true)", UUID.randomUUID(), today);
+        doCallRealMethod().when(marketHours).isRegularSession(any(Instant.class));
+
+        assertThat(execution.executePending(order)).isFalse();
+        assertThat(jdbc.queryForObject("select status from trading_order where id=?", String.class, order)).isEqualTo("PENDING");
+        assertThat(jdbc.queryForObject("select count(*) from execution where order_id=?", Integer.class, order)).isZero();
+        assertThat(jdbc.queryForObject("select count(*) from position where account_id=?", Integer.class, user.account)).isZero();
+        assertThat(jdbc.queryForObject("select count(*) from ledger_entry where account_id=? and entry_type<>'INITIAL_DEPOSIT'",
+                Integer.class, user.account)).isZero();
+        assertBalance(user.account, "99800.0000", "200.0000");
     }
 
     @Test

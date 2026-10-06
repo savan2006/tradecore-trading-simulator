@@ -1,11 +1,16 @@
 package com.tradecore.execution;
 
 import com.tradecore.market.MarketHoursPolicy;
+import com.tradecore.market.MarketDataRefreshProperties;
+import com.tradecore.market.MarketSession;
+import com.tradecore.market.MarketSessionRepository;
 import com.tradecore.order.TradingOrder;
 import com.tradecore.order.TradingOrderRepository;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
+import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -24,6 +29,18 @@ class OrderExecutionSchedulerTest {
     void schedulerDoesNotScanOutsideConfiguredMarketHours() {
         when(hours.isRegularSession(any())).thenReturn(false);
         scheduler().runOnce(Instant.now());
+        verifyNoInteractions(orders, execution);
+    }
+
+    @Test
+    void configuredHolidayPreventsOrderExecutionScan() {
+        MarketSessionRepository calendar = mock(MarketSessionRepository.class);
+        LocalDate holiday = LocalDate.parse("2026-10-05");
+        when(calendar.findByTradingDateAndActiveTrue(holiday)).thenReturn(Optional.of(
+                new MarketSession(holiday, true, null, null, "test holiday")));
+        MarketHoursPolicy calendarPolicy = new MarketHoursPolicy(new MarketDataRefreshProperties(), calendar);
+        var scheduler = new OrderExecutionScheduler(properties, calendarPolicy, orders, execution);
+        scheduler.runOnce(Instant.parse("2026-10-05T04:30:00Z"));
         verifyNoInteractions(orders, execution);
     }
 

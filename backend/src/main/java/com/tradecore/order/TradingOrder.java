@@ -90,4 +90,18 @@ public class TradingOrder {
         status = "CANCELLED";
         updatedAt = now;
     }
+
+    public void modifyPending(long quantity, BigDecimal limitPrice, BigDecimal triggerPrice,
+            BigDecimal reservedAmount, Instant now) {
+        if (!"PENDING".equals(status) || executedQuantity != 0 || remainingQuantity != requestedQuantity) {
+            throw new IllegalStateException("Only an unfilled pending order can be modified");
+        }
+        if (quantity <= 0) throw new IllegalArgumentException("Modified quantity must be positive");
+        requestedQuantity = quantity;
+        remainingQuantity = quantity;
+        this.limitPrice = limitPrice;
+        this.triggerPrice = triggerPrice;
+        this.reservedAmount = reservedAmount == null ? BigDecimal.ZERO.setScale(4) : reservedAmount;
+        updatedAt = now;
+    }
 }

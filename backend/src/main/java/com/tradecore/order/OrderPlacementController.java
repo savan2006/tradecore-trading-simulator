@@ -4,6 +4,7 @@ import jakarta.validation.Valid;
 import org.springframework.security.core.Authentication;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -30,6 +31,18 @@ public class OrderPlacementController {
             @Valid @RequestBody OrderPlacementRequest request,
             @RequestHeader(name = "Idempotency-Key", required = false) String idempotencyKey) {
         return orderPlacementService.placeOrder(authentication.getName(), request, idempotencyKey);
+    }
+
+    @PostMapping("/preview")
+    public OrderPreviewResponse previewOrder(Authentication authentication,
+            @Valid @RequestBody OrderPlacementRequest request) {
+        return orderPlacementService.previewOrder(authentication.getName(), request);
+    }
+
+    @PutMapping("/{orderId}")
+    public OrderHistoryResponse modifyOrder(Authentication authentication, @PathVariable UUID orderId,
+            @Valid @RequestBody OrderModificationRequest request) {
+        return orderPlacementService.modifyPendingOrder(authentication.getName(), orderId, request);
     }
 
     @PostMapping("/{orderId}/cancel")
