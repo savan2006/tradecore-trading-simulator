@@ -76,7 +76,7 @@ public class OrderExecutionService {
         if (account == null || !account.getId().equals(order.getAccount().getId()) || !"ACTIVE".equals(account.getStatus())) return false;
 
         MarketQuote quote = quoteRepository.findByInstrument_Id(order.getInstrument().getId()).orElse(null);
-        if (!eligible(quote, now) || (!squareOff && !"OPEN".equals(quote.getMarketStatus()))) return false;
+        if (!eligible(quote, now)) return false;
         BigDecimal executionPrice = marketPrice(quote, order.getSide());
         if (executionPrice == null || executionPrice.signum() <= 0) return false;
         if ("LIMIT".equals(order.getOrderType())) {

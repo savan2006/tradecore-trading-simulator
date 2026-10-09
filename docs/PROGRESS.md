@@ -21,7 +21,7 @@ with one unpushed commit at audit time. Known defects: see `docs/PROJECT_CONTEXT
 | U1 | Upgrade backend to Spring Boot 4.1.1 | L | DONE | 2026-10-09 | Upgraded to Boot 4.1.1 and Jackson 3; backend tests 235 (0 failures, 3 skipped). |  |
 | U2 | Refresh other backend dependencies and build plugins | S | DONE | 2026-10-09 | Updated Enforcer; confirmed MCP SDK 2.0.1 is current. Backend tests 235 (0 failures, 3 skipped). |  |
 | U3 | Upgrade frontend to the latest stable Next.js / React / TypeScript | M | DONE | 2026-10-09 | Updated Next/React/TypeScript and Node engines; typecheck/build pass, production audit clean. Tests: n/a. |  |
-| C1 | CRITICAL FIX: real quotes can never execute orders | M | NOT_STARTED |  |  |  |
+| C1 | CRITICAL FIX: real quotes can never execute orders | M | DONE | 2026-10-09 | Session eligibility now uses MarketHoursPolicy; UNKNOWN live ingested quotes can fill. Backend tests: 236 (0 failures, 3 skipped). |  |
 | C2 | Fix execution starvation + intraday square-off timing | M | NOT_STARTED |  |  |  |
 | C4 | Financial invariants test + read-only reconciliation endpoint | M | NOT_STARTED |  |  |  |
 | C3 | Market-data robustness + 80-company completeness report | M | NOT_STARTED |  |  |  |

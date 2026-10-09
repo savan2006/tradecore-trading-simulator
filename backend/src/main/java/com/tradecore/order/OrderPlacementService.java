@@ -121,8 +121,7 @@ public class OrderPlacementService {
         MarketQuote quote = quoteRepository.findByInstrument_Id(instrument.getId())
                 .orElseThrow(() -> unprocessable("A current market quote is required"));
         validateQuote(quote, now);
-        if ("MARKET".equals(orderType)
-                && (!marketHoursPolicy.isRegularSession(now) || !"OPEN".equals(quote.getMarketStatus()))) {
+        if ("MARKET".equals(orderType) && !marketHoursPolicy.isRegularSession(now)) {
             throw unprocessable("Market orders require an open regular market session");
         }
 
@@ -184,14 +183,14 @@ public class OrderPlacementService {
         } catch (ResponseStatusException exception) {
             errors.add(exception.getReason());
             return previewResult(false, errors, exchange, symbol, side, type, mode, request.quantity(),
-                    null, null, null, null, List.of(), "UNAVAILABLE", null, sessionState(now, null), "UNKNOWN");
+                    null, null, null, null, List.of(), "UNAVAILABLE", null, sessionState(now), "UNKNOWN");
         }
         Instrument instrument = instrumentRepository.findByExchangeAndSymbol(exchange, symbol)
                 .filter(Instrument::isTradable).orElse(null);
         if (instrument == null) {
             errors.add("Unsupported or non-tradable instrument");
             return previewResult(false, errors, exchange, symbol, side, type, mode, request.quantity(),
-                    null, null, null, null, List.of(), "UNAVAILABLE", null, sessionState(now, null), "UNKNOWN");
+                    null, null, null, null, List.of(), "UNAVAILABLE", null, sessionState(now), "UNKNOWN");
         }
         if (!account.getCurrency().equals(instrument.getCurrency())) errors.add("Instrument currency does not match the trading account");
 
@@ -202,7 +201,7 @@ public class OrderPlacementService {
         String marketStatus = quote == null ? "UNKNOWN" : quote.getMarketStatus();
         boolean quoteEligible = quote != null && quoteIsEligible(quote, now);
         if (!quoteEligible) errors.add(quote == null ? "A current market quote is required" : "Market quote is stale or unavailable");
-        String session = sessionState(now, marketStatus);
+        String session = sessionState(now);
         if ("MARKET".equals(type) && !"ELIGIBLE".equals(session)) errors.add("Market orders require an open regular market session");
 
         BigDecimal eligiblePrice = quoteEligible ? quote.getLastPrice() : null;
@@ -237,9 +236,8 @@ public class OrderPlacementService {
                 freshness, age, session, marketStatus);
     }
 
-    private String sessionState(Instant now, String quoteMarketStatus) {
-        if (!marketHoursPolicy.isRegularSession(now)) return "CLOSED";
-        return "OPEN".equals(quoteMarketStatus) ? "ELIGIBLE" : "CLOSED";
+    private String sessionState(Instant now) {
+        return marketHoursPolicy.isRegularSession(now) ? "ELIGIBLE" : "CLOSED";
     }
 
     private static BigDecimal referencePrice(OrderPlacementRequest request, String side, String orderType,

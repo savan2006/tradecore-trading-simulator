@@ -5,6 +5,10 @@ import com.tradecore.identity.RegistrationRequest;
 import com.tradecore.identity.RegistrationResponse;
 import com.tradecore.identity.UserRegistrationService;
 import com.tradecore.market.MarketHoursPolicy;
+import com.tradecore.market.MarketDataFreshness;
+import com.tradecore.market.MarketDataIngestionService;
+import com.tradecore.market.MarketDataProvider;
+import com.tradecore.market.MarketQuoteSnapshot;
 import com.tradecore.order.OrderPlacementRequest;
 import com.tradecore.order.OrderPlacementService;
 import com.tradecore.order.OrderCancellationService;
@@ -15,6 +19,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
@@ -22,6 +27,8 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
@@ -33,6 +40,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doCallRealMethod;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.when;
 
 @SpringBootTest(properties = {
         "spring.datasource.url=jdbc:h2:mem:tradecore-execution-test;MODE=PostgreSQL;DB_CLOSE_DELAY=-1;LOCK_TIMEOUT=10000",
@@ -47,7 +55,9 @@ class OrderExecutionServiceTest {
     @Autowired private OrderPlacementService placement;
     @Autowired private OrderExecutionService execution;
     @Autowired private OrderCancellationService cancellation;
+    @Autowired private MarketDataIngestionService ingestion;
     @Autowired private TradingOrderRepository orders;
+    @MockitoBean private MarketDataProvider provider;
     @MockitoSpyBean private MarketHoursPolicy marketHours;
     @MockitoSpyBean private com.tradecore.ledger.LedgerEntryRepository ledger;
     private UUID instrumentId;
@@ -300,11 +310,43 @@ class OrderExecutionServiceTest {
     }
 
     @Test
-    void quoteMustRemainOpenForExecution() {
+    void closedMarketSessionBlocksExecutionRegardlessOfQuoteStatus() {
         Account user = account(); UUID order = place(user, "BUY", "MARKET", 1, null);
-        putQuote("100", "101", "99", Instant.now(), "CLOSED");
+        putQuote("100", "101", "99", Instant.now(), "OPEN");
+        doReturn(false).when(marketHours).isRegularSession(any(Instant.class));
         assertThat(execution.executePending(order)).isFalse();
         assertPending(order);
+    }
+
+    @Test
+    void unknownStatusFromRealIngestionCanPlaceAndExecuteOnlyDuringRegularSession() {
+        Instant updated = Instant.now();
+        when(provider.getQuotes(any())).thenReturn(List.of(new MarketQuoteSnapshot(
+                "NSE", "TCS", null, updated.minusSeconds(1), new BigDecimal("100"),
+                new BigDecimal("102"), new BigDecimal("98"), null, new BigDecimal("99"),
+                1000L, new BigDecimal("100"), "NSE_MCP_CM_MARKET", updated)));
+        when(provider.getDataFreshness()).thenReturn(Optional.of(new MarketDataFreshness(
+                "NSE_MCP_CM_MARKET", true, updated, java.time.Duration.ofMinutes(1))));
+
+        ingestion.ingestCurrentQuotes(List.of("TCS"));
+        assertThat(jdbc.queryForObject("select market_status from market_quote where instrument_id=?", String.class, instrumentId))
+                .isEqualTo("UNKNOWN");
+        assertThat(jdbc.queryForObject("select data_status from market_quote where instrument_id=?", String.class, instrumentId))
+                .isEqualTo("LIVE");
+
+        doReturn(true).when(marketHours).isRegularSession(any(Instant.class));
+        Account inside = account();
+        UUID order = place(inside, "BUY", "MARKET", 1, null);
+        assertThat(execution.executePending(order)).isTrue();
+        assertThat(jdbc.queryForObject("select status from trading_order where id=?", String.class, order)).isEqualTo("FILLED");
+
+        doReturn(false).when(marketHours).isRegularSession(any(Instant.class));
+        Account outside = account();
+        assertThatThrownBy(() -> place(outside, "BUY", "MARKET", 1, null))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("open regular market session");
+        assertThat(jdbc.queryForObject("select count(*) from trading_order where account_id=?", Integer.class, outside.account))
+                .isZero();
     }
 
     @Test
