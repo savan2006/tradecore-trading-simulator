@@ -24,6 +24,7 @@
 
     <dependencyManagement>
         <dependencies>
+            <!-- Keep all MCP SDK modules on the latest stable 2.x release line. -->
             <dependency>
                 <groupId>io.modelcontextprotocol.sdk</groupId>
                 <artifactId>mcp-bom</artifactId>
@@ -116,7 +117,8 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-enforcer-plugin</artifactId>
-                <version>3.5.0</version>
+                <!-- Pin the current stable plugin used to enforce the JDK 21 build. -->
+                <version>3.6.3</version>
                 <executions>
                     <execution>
                         <id>enforce-java-21</id>
