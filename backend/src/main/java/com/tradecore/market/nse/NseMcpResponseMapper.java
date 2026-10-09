@@ -10,8 +10,9 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import com.tradecore.market.MarketCandleSnapshot;
 import com.tradecore.market.MarketDataFreshness;
 import com.tradecore.market.MarketDataProviderException;
@@ -29,7 +30,7 @@ final class NseMcpResponseMapper {
     private static final String BHAVCOPY_SOURCE = "NSE_MCP_BHAVCOPY";
     private static final DateTimeFormatter CM_TRADE_TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final ZoneId INDIA = ZoneId.of("Asia/Kolkata");
-    private static final ObjectMapper JSON = new ObjectMapper();
+    private static final ObjectMapper JSON = JsonMapper.builder().build();
 
     private NseMcpResponseMapper() {
     }

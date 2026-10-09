@@ -1,7 +1,7 @@
 package com.tradecore.market;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -63,7 +63,7 @@ public class MarketDataCache {
         try {
             String json = redis.opsForValue().get(key);
             return json == null ? Optional.empty() : Optional.of(objectMapper.readValue(json, type));
-        } catch (RuntimeException | java.io.IOException failure) {
+        } catch (RuntimeException failure) {
             log.warn("Market cache read failed for {}; using PostgreSQL", key);
             return Optional.empty();
         }
@@ -73,7 +73,7 @@ public class MarketDataCache {
         try {
             String json = redis.opsForValue().get(key);
             return json == null ? Optional.empty() : Optional.of(objectMapper.readValue(json, type));
-        } catch (RuntimeException | java.io.IOException failure) {
+        } catch (RuntimeException failure) {
             log.warn("Market cache read failed for {}; using PostgreSQL", key);
             return Optional.empty();
         }
@@ -82,7 +82,7 @@ public class MarketDataCache {
     private void write(String key, Object value, java.time.Duration ttl) {
         try {
             redis.opsForValue().set(key, objectMapper.writeValueAsString(value), ttl);
-        } catch (RuntimeException | java.io.IOException failure) {
+        } catch (RuntimeException failure) {
             log.warn("Market cache write failed for {}", key);
         }
     }

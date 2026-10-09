@@ -4,7 +4,7 @@ TradeCore is a student project for learning how a trading platform works. It off
 
 ## Technologies
 
-- Java 21, Spring Boot, and Maven
+- Java 21, Spring Boot 4.1.1, and Maven
 - PostgreSQL for application and trading data
 - Redis for market-data caching and lightweight rate limiting
 - Next.js, React, and TypeScript

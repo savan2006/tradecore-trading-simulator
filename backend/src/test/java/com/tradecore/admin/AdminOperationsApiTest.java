@@ -30,7 +30,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
@@ -98,12 +98,12 @@ class AdminOperationsApiTest {
                 .andExpect(status().isAccepted()).andExpect(jsonPath("$.state").value(org.hamcrest.Matchers.anyOf(
                         org.hamcrest.Matchers.is("QUEUED"), org.hamcrest.Matchers.is("RUNNING"), org.hamcrest.Matchers.is("COMPLETED"))))
                 .andReturn().getResponse().getContentAsString();
-        String id = new com.fasterxml.jackson.databind.ObjectMapper().readTree(jobId).get("jobId").asText();
+        String id = new tools.jackson.databind.ObjectMapper().readTree(jobId).get("jobId").asText();
         String state = "QUEUED";
         for (int attempt = 0; attempt < 100 && ("QUEUED".equals(state) || "RUNNING".equals(state)); attempt++) {
             String response = mvc.perform(get(endpoint).header("Authorization", basic(adminEmail)))
                     .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
-            var status = new com.fasterxml.jackson.databind.ObjectMapper().readTree(response);
+            var status = new tools.jackson.databind.ObjectMapper().readTree(response);
             assertThat(status.get("jobId").asText()).isEqualTo(id);
             state = status.get("state").asText();
             if ("QUEUED".equals(state) || "RUNNING".equals(state)) Thread.sleep(50);

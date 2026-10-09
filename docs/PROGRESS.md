@@ -18,7 +18,7 @@ with one unpushed commit at audit time. Known defects: see `docs/PROJECT_CONTEXT
 ## Tasks (recommended order, top to bottom)
 | ID | Task | Size | Status | Date | Summary / tests | Notes |
 |----|------|------|--------|------|-----------------|-------|
-| U1 | Upgrade backend to Spring Boot 4.1.1 | L | NOT_STARTED |  |  |  |
+| U1 | Upgrade backend to Spring Boot 4.1.1 | L | DONE | 2026-10-09 | Upgraded to Boot 4.1.1 and Jackson 3; backend tests 235 (0 failures, 3 skipped). |  |
 | U2 | Refresh other backend dependencies and build plugins | S | NOT_STARTED |  |  |  |
 | U3 | Upgrade frontend to the latest stable Next.js / React / TypeScript | M | NOT_STARTED |  |  |  |
 | C1 | CRITICAL FIX: real quotes can never execute orders | M | NOT_STARTED |  |  |  |

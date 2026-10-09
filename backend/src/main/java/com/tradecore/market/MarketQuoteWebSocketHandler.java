@@ -1,8 +1,8 @@
 package com.tradecore.market;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.util.HashSet;
 import java.util.Locale;
@@ -60,7 +60,7 @@ public class MarketQuoteWebSocketHandler extends TextWebSocketHandler {
         JsonNode command;
         try {
             command = objectMapper.readTree(message.getPayload());
-        } catch (JsonProcessingException malformed) {
+        } catch (JacksonException malformed) {
             sendError(client, "MALFORMED_MESSAGE", "Send a JSON object with action and symbol fields.");
             return;
         }

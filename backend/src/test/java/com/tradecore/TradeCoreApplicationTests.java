@@ -10,7 +10,8 @@ import org.flywaydb.core.Flyway;
 import org.springframework.dao.DataIntegrityViolationException;
 import jakarta.persistence.EntityManagerFactory;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
+import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.http.HttpStatus;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 
@@ -18,12 +19,13 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.Set;
 import java.util.UUID;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+@AutoConfigureTestRestTemplate
 @SpringBootTest(
         properties = {
                 "spring.datasource.url=jdbc:h2:mem:tradecore-test;MODE=PostgreSQL;DB_CLOSE_DELAY=-1",
@@ -317,9 +319,8 @@ class TradeCoreApplicationTests {
     }
 
     private JsonNode findProviderEndpoints(JsonNode healthComponents) {
-        var components = healthComponents.elements();
-        while (components.hasNext()) {
-            JsonNode component = components.next();
+        for (var entry : healthComponents.properties()) {
+            JsonNode component = entry.getValue();
             JsonNode endpoints = component.path("details").path("endpoints");
             if (endpoints.has("market-live") || endpoints.has("bhavcopy")) {
                 return endpoints;

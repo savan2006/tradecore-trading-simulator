@@ -3,8 +3,8 @@ package com.tradecore.learning;
 import com.tradecore.identity.RegistrationRequest;
 import com.tradecore.identity.UserRegistrationService;
 import com.tradecore.market.MarketDataProvider;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
 import java.math.BigDecimal;
 import java.sql.Timestamp;
@@ -17,7 +17,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
@@ -81,11 +81,15 @@ class LearningProfileApiTest {
                 .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(80))
                 .andReturn().getResponse().getContentAsString();
         JsonNode profiles = objectMapper.readTree(listBody);
-        assertThat(profiles.findValuesAsText("symbol")).contains("HDFCBANK", "RELIANCE", "TCS", "SBIN",
+        var symbols = java.util.stream.StreamSupport.stream(profiles.spliterator(), false)
+                .map(profile -> profile.path("symbol").asText()).toList();
+        assertThat(symbols).contains("HDFCBANK", "RELIANCE", "TCS", "SBIN",
                 "INFY", "MARUTI", "HINDUNILVR", "ONGC", "BHARTIARTL", "SUNPHARMA", "LT", "TATASTEEL",
                 "ULTRACEMCO", "ASIANPAINT", "DLF", "TITAN", "INDIGO", "ADANIPORTS", "KPRMILL", "SUNTV",
                 "RVNL", "IRCTC");
-        assertThat(profiles.findValuesAsText("sector")).contains("Financial Services", "Information Technology",
+        var sectors = java.util.stream.StreamSupport.stream(profiles.spliterator(), false)
+                .map(profile -> profile.path("sector").asText()).toList();
+        assertThat(sectors).contains("Financial Services", "Information Technology",
                 "Automobiles", "Consumer Staples", "Energy", "Telecommunications", "Healthcare", "Industrials",
                 "Materials", "Real Estate", "Consumer Discretionary", "Travel and Transportation",
                 "Transport and Infrastructure", "Textiles and Apparel", "Media and Entertainment");

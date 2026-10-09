@@ -9,7 +9,8 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import com.tradecore.execution.OrderExecutionService;
 import com.tradecore.order.OrderPlacementService;
 import com.tradecore.portfolio.PortfolioQueryService;
@@ -31,7 +32,7 @@ class MarketDataCacheTest {
     private final StringRedisTemplate redis = org.mockito.Mockito.mock(StringRedisTemplate.class);
     @SuppressWarnings("unchecked")
     private final ValueOperations<String, String> values = org.mockito.Mockito.mock(ValueOperations.class);
-    private final ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
+    private final ObjectMapper mapper = JsonMapper.builder().build();
     private final MarketDataCacheProperties properties = new MarketDataCacheProperties();
     private final InstrumentRepository instruments = org.mockito.Mockito.mock(InstrumentRepository.class);
     private final MarketQuoteRepository quotes = org.mockito.Mockito.mock(MarketQuoteRepository.class);
