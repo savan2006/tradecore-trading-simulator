@@ -57,10 +57,12 @@ tradecore:
       limit: ${TRADECORE_RATE_LIMIT_CANCEL_LIMIT:30}
       window: ${TRADECORE_RATE_LIMIT_CANCEL_WINDOW:PT1M}
   execution:
+    max-orders-per-run: ${TRADECORE_EXECUTION_MAX_ORDERS_PER_RUN:1000}
     scheduling:
       enabled: ${TRADECORE_EXECUTION_ENABLED:true}
       interval: ${TRADECORE_EXECUTION_INTERVAL:PT5S}
   intraday:
+    square-off-minutes-before-close: ${TRADECORE_INTRADAY_SQUARE_OFF_MINUTES_BEFORE_CLOSE:10}
     square-off-check-interval: ${TRADECORE_INTRADAY_SQUARE_OFF_CHECK_INTERVAL:PT30S}
   security:
     user: ${TRADECORE_SECURITY_USER:tradecore-dev}

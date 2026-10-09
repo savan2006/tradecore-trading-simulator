@@ -38,6 +38,8 @@ import static org.mockito.Mockito.doCallRealMethod;
 })
 class IntradaySquareOffServiceTest {
     private static final Instant AFTER_CLOSE = Instant.parse("2026-10-05T10:00:00Z"); // 15:30 Asia/Kolkata
+    private static final Instant WINDOW_START = Instant.parse("2026-10-05T09:50:00Z"); // 15:20 Asia/Kolkata
+    private static final Instant BEFORE_WINDOW = WINDOW_START.minusSeconds(1);
     private static final String PASSWORD = "Square-Off-Test-Password-93!";
     @Autowired private JdbcTemplate jdbc;
     @Autowired private UserRegistrationService registration;
@@ -62,7 +64,7 @@ class IntradaySquareOffServiceTest {
         UUID intradaySell = place(account, "INTRADAY", "SELL", 2);
         UUID delivery = place(account, "DELIVERY", "BUY", 2);
         putQuote("100", "101", "99", "STALE");
-        assertThat(squareOff.runOnce(AFTER_CLOSE)).isZero();
+        assertThat(squareOff.runOnce(WINDOW_START)).isZero();
 
         assertThat(orderStatus(intraday)).isEqualTo("CANCELLED");
         assertThat(orderStatus(intradaySell)).isEqualTo("CANCELLED");
@@ -107,7 +109,7 @@ class IntradaySquareOffServiceTest {
     void staleOrMissingQuoteLeavesPositionAndFinancialStateUntouched() {
         Account stale = account(); UUID stalePosition = seedPosition(stale.id, 3, 0, "100");
         putQuote("100", "101", "99", "STALE");
-        assertThat(squareOff.runOnce(AFTER_CLOSE)).isZero();
+        assertThat(squareOff.runOnce(WINDOW_START)).isZero();
         assertPositionOpen(stale.id, stalePosition, 3);
         assertThat(jdbc.queryForObject("select count(*) from execution where account_id=?", Integer.class, stale.id)).isZero();
         assertThat(jdbc.queryForObject("select count(*) from ledger_entry where account_id=? and entry_type<>'INITIAL_DEPOSIT'", Integer.class, stale.id)).isZero();
@@ -146,13 +148,15 @@ class IntradaySquareOffServiceTest {
 
     @Test
     void squareOffSchedulerTimingPolicyUsesConfiguredClose() {
-        assertThat(marketHours.isSessionEnded(Instant.parse("2026-10-05T09:59:59Z"))).isFalse();
+        assertThat(marketHours.isSquareOffWindow(BEFORE_WINDOW)).isFalse();
+        assertThat(marketHours.isSquareOffWindow(WINDOW_START)).isTrue();
         assertThat(marketHours.isSessionEnded(AFTER_CLOSE)).isTrue();
-        assertThat(marketHours.isSessionEnded(Instant.parse("2026-10-03T10:00:00Z"))).isFalse();
+        assertThat(marketHours.isSquareOffWindow(AFTER_CLOSE)).isTrue();
+        assertThat(marketHours.isSquareOffWindow(Instant.parse("2026-10-03T10:00:00Z"))).isFalse();
         Account account = account(); UUID position = seedPosition(account.id, 1, 0, "100");
-        assertThat(squareOff.runOnce(Instant.parse("2026-10-05T09:59:59Z"))).isZero();
+        assertThat(squareOff.runOnce(BEFORE_WINDOW)).isZero();
         assertPositionOpen(account.id, position, 1);
-        assertThat(squareOff.runOnce(AFTER_CLOSE)).isGreaterThanOrEqualTo(1);
+        assertThat(squareOff.runOnce(WINDOW_START)).isGreaterThanOrEqualTo(1);
         assertThat(jdbc.queryForObject("select quantity from position where id=?", Long.class, position)).isZero();
     }
 
@@ -161,7 +165,7 @@ class IntradaySquareOffServiceTest {
         LocalDate today = LocalDate.now(ZoneId.of("Asia/Kolkata"));
         jdbc.update("insert into market_session (id,trading_date,session_state,holiday,description,active) "
                         + "values (?,?,'HOLIDAY',true,'test holiday',true)", UUID.randomUUID(), today);
-        doCallRealMethod().when(marketHours).isSessionEnded(any(Instant.class));
+        doCallRealMethod().when(marketHours).isSquareOffWindow(any(Instant.class));
         Account account = account();
         UUID position = seedPosition(account.id, 3, 0, "100");
 

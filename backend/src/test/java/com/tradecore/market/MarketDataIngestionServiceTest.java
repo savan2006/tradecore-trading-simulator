@@ -242,6 +242,55 @@ class MarketDataIngestionServiceTest {
     }
 
     @Test
+    void skipsOlderIncomingProviderAndMarketTimestampsWithoutChangingStoredQuote() {
+        Instant newer = PROVIDER_UPDATED_AT.plusSeconds(60);
+        stubQuotes(List.of("TCS"), newer, Duration.ofDays(30_000));
+        assertThat(ingestionService.ingestCurrentQuotes(List.of("TCS")).inserted()).isEqualTo(1);
+        BigDecimal storedPrice = jdbcTemplate.queryForObject("SELECT last_price FROM market_quote", BigDecimal.class);
+        Instant storedProviderTime = jdbcTemplate.queryForObject(
+                "SELECT provider_updated_at FROM market_quote", java.sql.Timestamp.class).toInstant();
+
+        Instant older = PROVIDER_UPDATED_AT;
+        var original = quote("TCS", older);
+        var marketOlderButProviderNewer = new MarketQuoteSnapshot(original.exchange(), original.symbol(),
+                original.providerInstrumentId(), original.tradingTimestamp().minusSeconds(1), original.open(),
+                original.high(), original.low(), original.close(), original.previousClose(), original.volume(),
+                new BigDecimal("102.25"), original.dataSource(), newer.plusSeconds(1));
+        when(provider.getQuotes(any())).thenReturn(List.of(marketOlderButProviderNewer));
+        when(provider.getDataFreshness()).thenReturn(freshness(newer.plusSeconds(1), Duration.ofDays(30_000)));
+
+        var result = ingestionService.ingestCurrentQuotes(List.of("TCS"));
+
+        assertThat(result).isEqualTo(new MarketDataIngestionResult(1, 0, 0, 1, 0));
+        assertThat(jdbcTemplate.queryForObject("SELECT last_price FROM market_quote", BigDecimal.class))
+                .isEqualByComparingTo(storedPrice);
+        assertThat(jdbcTemplate.queryForObject("SELECT provider_updated_at FROM market_quote", java.sql.Timestamp.class)
+                .toInstant()).isEqualTo(storedProviderTime);
+
+        var providerOlderButMarketNewer = new MarketQuoteSnapshot(original.exchange(), original.symbol(),
+                original.providerInstrumentId(), original.tradingTimestamp().plusSeconds(1), original.open(),
+                original.high(), original.low(), original.close(), original.previousClose(), original.volume(),
+                new BigDecimal("103"), original.dataSource(), older);
+        when(provider.getQuotes(any())).thenReturn(List.of(providerOlderButMarketNewer));
+        var providerOlderResult = ingestionService.ingestCurrentQuotes(List.of("TCS"));
+        assertThat(providerOlderResult).isEqualTo(new MarketDataIngestionResult(1, 0, 0, 1, 0));
+        assertThat(jdbcTemplate.queryForObject("SELECT last_price FROM market_quote", BigDecimal.class))
+                .isEqualByComparingTo(storedPrice);
+    }
+
+    @Test
+    void ingestsAllAvailableApprovedInstrumentsWithoutRequiringEighty() {
+        jdbcTemplate.update("UPDATE instrument SET tradable = FALSE WHERE exchange = 'NSE' AND symbol <> 'TCS'");
+        try {
+            stubQuotes(List.of("TCS"), PROVIDER_UPDATED_AT, Duration.ofDays(30_000));
+            assertThat(ingestionService.ingestCurrentQuotes()).isEqualTo(new MarketDataIngestionResult(1, 1, 0, 0, 0));
+            verify(provider).getQuotes(List.of("TCS"));
+        } finally {
+            jdbcTemplate.update("UPDATE instrument SET tradable = TRUE WHERE exchange = 'NSE'");
+        }
+    }
+
+    @Test
     void rejectsUnknownInstrumentsAndMalformedHistoricalRowsBeforePersistence() {
         assertThatThrownBy(() -> ingestionService.ingestCurrentQuotes(List.of("NOT_APPROVED")))
                 .isInstanceOfSatisfying(MarketDataProviderException.class,

@@ -19,7 +19,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
-/** Closes only intraday exposure after the configured market close, using regular order settlement. */
+/** Closes intraday exposure in the configured pre-close window, using regular order settlement. */
 @Service
 public class IntradaySquareOffService {
     private static final Logger log = LoggerFactory.getLogger(IntradaySquareOffService.class);
@@ -42,9 +42,9 @@ public class IntradaySquareOffService {
         this.transactionTemplate = new TransactionTemplate(transactionManager);
     }
 
-    /** Returns without work before close or on weekends. Repeated post-close sweeps are state-idempotent. */
+    /** Returns without work before the square-off window or on holidays. Retries remain state-idempotent. */
     public int runOnce(Instant now) {
-        if (!marketHours.isSessionEnded(now)) return 0;
+        if (!marketHours.isSquareOffWindow(now)) return 0;
         int settled = 0;
         for (UUID orderId : orders.findPendingIntradayOrderIds()) {
             try { cancellations.cancelForSquareOff(orderId); }

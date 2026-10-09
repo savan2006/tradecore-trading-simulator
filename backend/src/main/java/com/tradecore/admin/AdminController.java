@@ -19,11 +19,14 @@ public class AdminController {
     private final AdminOperationsService service;
     private final AdminAuditLogService auditLogService;
     private final AuditService audit;
+    private final ReconciliationService reconciliation;
 
-    public AdminController(AdminOperationsService service, AdminAuditLogService auditLogService, AuditService audit) {
+    public AdminController(AdminOperationsService service, AdminAuditLogService auditLogService, AuditService audit,
+            ReconciliationService reconciliation) {
         this.service = service;
         this.auditLogService = auditLogService;
         this.audit = audit;
+        this.reconciliation = reconciliation;
     }
 
     @GetMapping("/overview")
@@ -57,6 +60,12 @@ public class AdminController {
     AdminMarketStatusResponse marketStatus(Authentication authentication) {
         recordAccess(authentication, "ADMIN_ACCESS_MARKET_STATUS", "/api/v1/admin/market-status");
         return service.marketStatus();
+    }
+
+    /** H2 tests do not prove PostgreSQL row-lock behavior; run this check against the real database after live testing. */
+    @GetMapping("/reconciliation")
+    java.util.List<ReconciliationService.Check> reconciliation() {
+        return reconciliation.reconcile();
     }
 
     @GetMapping("/audit-logs")

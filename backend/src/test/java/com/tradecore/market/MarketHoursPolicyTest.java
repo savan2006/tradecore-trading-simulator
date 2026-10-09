@@ -19,8 +19,13 @@ class MarketHoursPolicyTest {
         MarketHoursPolicy policy = new MarketHoursPolicy(new MarketDataRefreshProperties(), mock(MarketSessionRepository.class));
         assertThat(policy.isRegularSession(at("2026-10-05", "09:15"))).isTrue();
         assertThat(policy.isRegularSession(at("2026-10-05", "15:30"))).isFalse();
+        assertThat(policy.isSquareOffWindow(at("2026-10-05", "15:19:59"))).isFalse();
+        assertThat(policy.isSquareOffWindow(at("2026-10-05", "15:20"))).isTrue();
+        assertThat(policy.isSquareOffWindow(at("2026-10-05", "15:29"))).isTrue();
+        assertThat(policy.isSquareOffWindow(at("2026-10-05", "15:30"))).isTrue();
         assertThat(policy.isRegularSession(at("2026-10-03", "10:00"))).isFalse();
         assertThat(policy.isSessionEnded(at("2026-10-03", "16:00"))).isFalse();
+        assertThat(policy.isSquareOffWindow(at("2026-10-03", "17:00"))).isFalse();
     }
 
     @Test
@@ -41,6 +46,9 @@ class MarketHoursPolicyTest {
         assertThat(policy.isRegularSession(at("2027-01-04", "10:00"))).isTrue();
         assertThat(policy.isRegularSession(at("2027-01-04", "12:59"))).isTrue();
         assertThat(policy.isRegularSession(at("2027-01-04", "13:00"))).isFalse();
+        assertThat(policy.isSquareOffWindow(at("2027-01-04", "12:50"))).isTrue();
+        assertThat(policy.isSquareOffWindow(at("2027-01-04", "13:00"))).isTrue();
+        assertThat(policy.isSquareOffWindow(at("2027-01-01", "16:00"))).isFalse();
         assertThat(policy.isSessionEnded(at("2027-01-04", "12:59"))).isFalse();
         assertThat(policy.isSessionEnded(at("2027-01-04", "13:00"))).isTrue();
     }
@@ -59,6 +67,8 @@ class MarketHoursPolicyTest {
         assertThat(policy.isRegularSession(at("2026-11-08", "17:59"))).isTrue();
         assertThat(policy.isRegularSession(at("2026-11-08", "18:00"))).isFalse();
         assertThat(policy.isSessionEnded(at("2026-11-08", "18:00"))).isTrue();
+        assertThat(policy.isSquareOffWindow(at("2026-11-08", "17:50"))).isTrue();
+        assertThat(policy.isSquareOffWindow(at("2026-11-08", "18:00"))).isTrue();
     }
 
     @Test

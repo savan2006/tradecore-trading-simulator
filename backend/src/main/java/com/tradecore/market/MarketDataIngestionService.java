@@ -31,7 +31,6 @@ public class MarketDataIngestionService {
     private static final String EQUITY = "EQUITY";
     private static final String DAILY_RESOLUTION = "1D";
     private static final String UNKNOWN_MARKET_STATUS = "UNKNOWN";
-    private static final int SUPPORTED_UNIVERSE_SIZE = 80;
     private static final ZoneId EXCHANGE_ZONE = ZoneId.of("Asia/Kolkata");
 
     private final MarketDataProvider provider;
@@ -82,6 +81,7 @@ public class MarketDataIngestionService {
         MarketDataIngestionResult result = transactionTemplate.execute(status -> {
             int inserted = 0;
             int updated = 0;
+            int skipped = 0;
             int stale = 0;
             for (Instrument instrument : selected) {
                 MarketQuoteSnapshot quote = quotesBySymbol.get(instrument.getSymbol());
@@ -93,6 +93,10 @@ public class MarketDataIngestionService {
                 var existing = quoteRepository.findByInstrument_Id(instrument.getId());
                 if (existing.isPresent()) {
                     MarketQuote current = existing.get();
+                    if (isOlderQuote(current, quote)) {
+                        skipped++;
+                        continue;
+                    }
                     boolean changed = quoteChanged(current, quote, UNKNOWN_MARKET_STATUS, dataStatus);
                     current.updateFrom(quote, ingestedAt, UNKNOWN_MARKET_STATUS, dataStatus);
                     if (changed) changedSymbols.add(instrument.getSymbol());
@@ -104,7 +108,7 @@ public class MarketDataIngestionService {
                     inserted++;
                 }
             }
-            return new MarketDataIngestionResult(quotes.size(), inserted, updated, 0, stale);
+            return new MarketDataIngestionResult(quotes.size(), inserted, updated, skipped, stale);
         });
         // The transaction above has committed. Drop every persisted symbol so subsequent reads load
         // the committed row; WebSocket publication below may then repopulate it with the same value.
@@ -134,6 +138,15 @@ public class MarketDataIngestionService {
                 || !Objects.equals(current.getProviderUpdatedAt(), next.dataUpdatedAt())
                 || !Objects.equals(current.getMarketStatus(), marketStatus)
                 || !Objects.equals(current.getDataStatus(), dataStatus);
+    }
+
+    private static boolean isOlderQuote(MarketQuote current, MarketQuoteSnapshot next) {
+        return isBefore(next.dataUpdatedAt(), current.getProviderUpdatedAt())
+                || isBefore(next.tradingTimestamp(), current.getMarketAt());
+    }
+
+    private static boolean isBefore(Instant incoming, Instant stored) {
+        return incoming != null && stored != null && incoming.isBefore(stored);
     }
 
     private static boolean sameDecimal(BigDecimal current, BigDecimal next) {
@@ -268,8 +281,8 @@ public class MarketDataIngestionService {
 
     private Map<String, Instrument> approvedInstrumentMap() {
         List<Instrument> approved = instrumentRepository.findAllByExchangeAndTradableTrue(EXCHANGE);
-        if (approved.size() != SUPPORTED_UNIVERSE_SIZE) {
-            throw new IllegalStateException("Expected exactly 80 tradable NSE instruments; found " + approved.size());
+        if (approved.isEmpty()) {
+            throw new IllegalStateException("No tradable NSE instruments are approved");
         }
         return approved.stream().collect(Collectors.toMap(Instrument::getSymbol, Function.identity()));
     }

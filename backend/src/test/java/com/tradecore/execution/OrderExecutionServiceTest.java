@@ -54,6 +54,8 @@ class OrderExecutionServiceTest {
     @Autowired private UserRegistrationService registration;
     @Autowired private OrderPlacementService placement;
     @Autowired private OrderExecutionService execution;
+    @Autowired private OrderExecutionScheduler executionScheduler;
+    @Autowired private ExecutionSchedulingProperties executionProperties;
     @Autowired private OrderCancellationService cancellation;
     @Autowired private MarketDataIngestionService ingestion;
     @Autowired private TradingOrderRepository orders;
@@ -86,6 +88,25 @@ class OrderExecutionServiceTest {
         assertThat(jdbc.queryForObject("select entry_type from ledger_entry where account_id=? and entry_type<>'INITIAL_DEPOSIT'", String.class, user.account)).isEqualTo("TRADE_DEBIT");
         assertThat(jdbc.queryForObject("select amount from ledger_entry where account_id=? and entry_type='TRADE_DEBIT'", BigDecimal.class, user.account)).isEqualByComparingTo("-202.0000");
         assertEvent(order);
+    }
+
+    @Test
+    void schedulerReachesFillableOrderAfterOneHundredUnfillableOlderOrders() {
+        Account user = account();
+        for (int i = 0; i < 100; i++) place(user, "BUY", "LIMIT", 1, "1");
+        UUID fillable = place(user, "BUY", "MARKET", 1, null);
+
+        executionProperties.setEnabled(true);
+        try {
+            executionScheduler.runOnce(Instant.now());
+        } finally {
+            executionProperties.setEnabled(false);
+        }
+
+        assertThat(jdbc.queryForObject("select count(*) from trading_order where account_id=? and status='PENDING'",
+                Integer.class, user.account)).isEqualTo(100);
+        assertThat(jdbc.queryForObject("select status from trading_order where id=?", String.class, fillable))
+                .isEqualTo("FILLED");
     }
 
     @Test
@@ -328,6 +349,8 @@ class OrderExecutionServiceTest {
         when(provider.getDataFreshness()).thenReturn(Optional.of(new MarketDataFreshness(
                 "NSE_MCP_CM_MARKET", true, updated, java.time.Duration.ofMinutes(1))));
 
+        // Start from an empty quote row so this test verifies the normalized UNKNOWN status on first ingestion.
+        jdbc.update("delete from market_quote where instrument_id=?", instrumentId);
         ingestion.ingestCurrentQuotes(List.of("TCS"));
         assertThat(jdbc.queryForObject("select market_status from market_quote where instrument_id=?", String.class, instrumentId))
                 .isEqualTo("UNKNOWN");

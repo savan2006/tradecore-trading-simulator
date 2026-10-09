@@ -25,7 +25,7 @@ public interface TradingOrderRepository extends JpaRepository<TradingOrder, UUID
     @Query("select o from TradingOrder o join fetch o.account join fetch o.instrument where o.id = :id")
     Optional<TradingOrder> findByIdForUpdate(@Param("id") UUID id);
 
-    List<TradingOrder> findTop100ByStatusOrderByCreatedAtAsc(String status);
+    Page<TradingOrder> findByStatusOrderByCreatedAtAscIdAsc(String status, Pageable pageable);
 
     @Query("select o.id from TradingOrder o where o.status='PENDING' and o.tradingMode='INTRADAY' order by o.createdAt asc, o.id asc")
     List<UUID> findPendingIntradayOrderIds();

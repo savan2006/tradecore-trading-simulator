@@ -9,6 +9,7 @@ import java.time.LocalDate;
 import java.util.Optional;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 /** NSE session policy with explicit calendar entries taking precedence over weekday defaults. */
@@ -18,6 +19,8 @@ public class MarketHoursPolicy {
     private final MarketDataRefreshProperties properties;
     private final ZoneId marketZone;
     private final MarketSessionRepository calendar;
+    @Value("${tradecore.intraday.square-off-minutes-before-close:10}")
+    private int squareOffMinutesBeforeClose = 10;
 
     @Autowired
     public MarketHoursPolicy(MarketDataRefreshProperties properties, MarketSessionRepository calendar) {
@@ -52,6 +55,18 @@ public class MarketHoursPolicy {
         ZonedDateTime marketTime = instant.atZone(marketZone);
         Optional<SessionWindow> window = sessionWindow(marketTime.toLocalDate());
         return window.isPresent() && !marketTime.toLocalTime().isBefore(window.get().closes());
+    }
+
+    /** True during the configured pre-close window and for same-day post-close retries. */
+    public boolean isSquareOffWindow(Instant instant) {
+        ZonedDateTime marketTime = instant.atZone(marketZone);
+        Optional<SessionWindow> window = sessionWindow(marketTime.toLocalDate());
+        if (window.isEmpty()) return false;
+        LocalTime localTime = marketTime.toLocalTime();
+        LocalTime closes = window.get().closes();
+        if (!localTime.isBefore(closes)) return true;
+        return !localTime.isBefore(window.get().opens())
+                && !localTime.isBefore(closes.minusMinutes(squareOffMinutesBeforeClose));
     }
 
     private Optional<SessionWindow> sessionWindow(LocalDate date) {
