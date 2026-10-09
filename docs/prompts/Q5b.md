@@ -1,10 +1,19 @@
 # Q5b - OPTIONAL: Dockerfile (only if your host requires Docker)  (OPTIONAL - run only if the user asks)
 
-Size: S. Why: Some hosts (for example Render) run Java only through a Docker image. Skip if your host builds Maven projects directly.
+Size: S. Commit message: "Add Dockerfile"
+Why: Some hosts (for example Render) run Java only through a Docker image. Skip if your host builds Maven projects directly.
 
-Follow the START and FINISH protocol in AGENTS.md (set your row in docs/PROGRESS.md to
-IN_PROGRESS first; at the end set it to DONE, commit with the message below, do not push).
+(Everything below is the complete prompt, identical to the one in the TradeCore_Codex_Prompts txt file.)
+
+---
+
+[TRADECORE TASK - self-contained; works in a fresh session]
+CONTEXT: TradeCore = educational virtual trading platform (REAL NSE data via the MarketDataProvider adapter, SIMULATED money/orders). backend/ = Spring Boot + Maven, frontend/ = Next.js + TypeScript. PostgreSQL = only financial source of truth; Redis = cache/rate-limit only. If AGENTS.md and docs/PROGRESS.md exist in the repo, read them first (docs/PROJECT_CONTEXT.md only if you need background). If they are missing, the rules below are enough.
+CORE RULES: BigDecimal for money. Never edit an existing Flyway migration (new migration with the next free version only if essential). Complete fills only, no short selling, no real money. Never bypass stale-quote (LIVE and <= 10 min), market-session (MarketHoursPolicy), risk or ownership checks. Never insert fake quotes into a real database; if something cannot be verified legitimately report NOT VERIFIED. NSE only through the provider adapter. Feature packages, no common/shared/utils. Lock order order -> account -> position. Audit/notification failures never fail a financial operation. No new dependency/file/abstraction unless asked. Never open or print .env files (.env.example is fine). Read only files this task needs; no repo-wide re-audit; no unrelated refactors. First check pom.xml / package.json for the real framework versions and write code valid for them; do not upgrade versions unless this task says so. If the task is already satisfied, say so and change nothing for it.
+COMMANDS: backend tests: set JAVA_HOME=C:\Users\DELL\.jdks\ms-21.0.12.1 && cd backend && E:\Maven\apache-maven-3.9.16\bin\mvn.cmd -q test (add -Dtest=ClassName for one class; use the JDK the pom requires if newer). Frontend: cd frontend && npx tsc --noEmit && npm run build.
+
+START (before the task): run git status and git log --oneline -5. If uncommitted changes exist that belong to this task (docs/PROGRESS.md row Q5b is IN_PROGRESS), a previous session was interrupted: read git diff, keep the correct partial work and finish only what is missing. If uncommitted changes exist that do NOT belong to this task, STOP and tell me to commit or stash them first. Then set row Q5b in docs/PROGRESS.md to IN_PROGRESS (create docs/PROGRESS.md with a simple table if it does not exist; edit only your own row).
 
 TASK Q5b - add backend/Dockerfile (multi-stage: Maven build, then a JRE image matching the pom's Java version), non-root user, JAVA_OPTS env, SPRING_PROFILES_ACTIVE=production, PORT/8080, healthcheck on /actuator/health/readiness, plus backend/.dockerignore (exclude target, .env*, .idea, .git). Never copy any .env file into the image. Do not run containers. Add one short "Docker hosts" section to DEPLOYMENT.md (create the file only if it does not exist).
 
-Commit message: "Add Dockerfile"
+FINISH (after the task): 1) The tests/build required above must pass. If they cannot pass, do NOT commit: set row Q5b to BLOCKED with the reason and stop. 2) Set row Q5b in docs/PROGRESS.md to DONE with today's date, a one-line summary and the test count (edit only your own row). If the task was already satisfied or blocked, still update the row and commit only docs/PROGRESS.md. 3) Stage only the files you changed for this task plus docs/PROGRESS.md; never stage .env* (except .env.example), secrets, target/, node_modules/, .next/ or *.tsbuildinfo; check git status first. 4) git commit -m "Add Dockerfile". 5) Do NOT push. 6) Final report, max 10 lines: files changed, tests/build result, commit hash, anything not done.
