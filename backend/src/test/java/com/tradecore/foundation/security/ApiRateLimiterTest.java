@@ -60,7 +60,31 @@ class ApiRateLimiterTest {
         assertThat(defaults.getRegister()).isEqualTo(new ApiRateLimitProperties.Rule(5, Duration.ofHours(1)));
         assertThat(defaults.getOrder()).isEqualTo(new ApiRateLimitProperties.Rule(20, Duration.ofMinutes(1)));
         assertThat(defaults.getCancel()).isEqualTo(new ApiRateLimitProperties.Rule(30, Duration.ofMinutes(1)));
+        assertThat(defaults.getAuthenticationFailure())
+                .isEqualTo(new ApiRateLimitProperties.Rule(10, Duration.ofMinutes(5)));
         defaults.setOrder(new ApiRateLimitProperties.Rule(7, Duration.ofSeconds(30)));
         assertThat(defaults.getOrder()).isEqualTo(new ApiRateLimitProperties.Rule(7, Duration.ofSeconds(30)));
+    }
+
+    @Test
+    void authenticationFailuresHaveAnIndependentConfiguredCounter() {
+        properties.setAuthenticationFailure(new ApiRateLimitProperties.Rule(1, Duration.ofSeconds(45)));
+        assertThat(limiter.allow("authentication-failure", "ip:192.0.2.10")).isTrue();
+        assertThat(limiter.allow("authentication-failure", "ip:192.0.2.10")).isFalse();
+        assertThat(limiter.allow("authentication-failure", "ip:192.0.2.11")).isTrue();
+        assertThat(limiter.retryAfterSeconds("authentication-failure")).isEqualTo(45);
+    }
+
+    @Test
+    void productionCanDisableTheStaticDevelopmentUser() {
+        SecurityConfiguration configuration = new SecurityConfiguration();
+        var users = configuration.userDetailsService(mock(com.tradecore.identity.UserRepository.class),
+                "tradecore-dev", "", false, new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder());
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> users.loadUserByUsername("tradecore-dev"))
+                .isInstanceOf(org.springframework.security.core.userdetails.UsernameNotFoundException.class);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> configuration.userDetailsService(
+                mock(com.tradecore.identity.UserRepository.class), "tradecore-dev", "", true,
+                new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder()))
+                .isInstanceOf(IllegalStateException.class);
     }
 }

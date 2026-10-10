@@ -28,4 +28,4 @@ record AdminMarketStatusResponse(boolean quoteRefreshEnabled, String quoteRefres
         boolean candleRefreshEnabled, String candleRefreshCron, Instant lastCandleRefreshAttemptAt,
         String lastCandleRefreshOutcome, Instant lastSuccessfulCandleRefreshAt,
         long candleRefreshFailureCount, boolean orderExecutionEnabled, String orderExecutionInterval,
-        String squareOffCheckInterval, Instant latestPersistedQuoteAt) { }
+        String squareOffCheckInterval, Instant latestPersistedQuoteAt, List<JobRunStatus> jobs) { }

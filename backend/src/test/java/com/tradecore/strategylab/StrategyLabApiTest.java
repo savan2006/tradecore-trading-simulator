@@ -78,6 +78,22 @@ class StrategyLabApiTest {
     }
 
     @Test
+    void boundsSymbolAndNumericInputsBeforeBacktestWork() throws Exception {
+        mvc.perform(post("/api/v1/strategy-lab/backtests").header("Authorization", credential)
+                        .contentType("application/json")
+                        .content("{\"symbol\":\"" + "X".repeat(33) + "\",\"fromDate\":\"2026-01-01\","
+                                + "\"toDate\":\"2026-01-02\",\"strategy\":\"RSI_MEAN_REVERSION\","
+                                + "\"startingCapital\":10000}"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(post("/api/v1/strategy-lab/backtests").header("Authorization", credential)
+                        .contentType("application/json")
+                        .content("{\"symbol\":\"TCS\",\"fromDate\":\"2026-01-01\","
+                                + "\"toDate\":\"2026-01-02\",\"strategy\":\"RSI_MEAN_REVERSION\","
+                                + "\"startingCapital\":10000,\"rsiPeriod\":1000}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     void returnsDeterministicResultsWithoutChangingFinancialRows() throws Exception {
         String input = """
                 {"symbol":"TCS","fromDate":"%s","toDate":"%s","strategy":"SIMPLE_MOVING_AVERAGE_CROSSOVER",

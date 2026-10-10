@@ -120,7 +120,8 @@ public class MarketDataIngestionService {
                 quoteStream.publish(queryService.getQuote(EXCHANGE, symbol));
             } catch (RuntimeException publishFailure) {
                 // Persistence has committed; a WebSocket/read failure must not change ingestion outcome.
-                log.warn("Could not publish persisted quote update for {}", symbol, publishFailure);
+                log.warn("Could not publish persisted quote update for {} category={}", symbol,
+                        publishFailure.getClass().getSimpleName());
             }
         }
         return result;

@@ -10,6 +10,7 @@ public class ApiRateLimitProperties {
     private Rule register = new Rule(5, Duration.ofHours(1));
     private Rule order = new Rule(20, Duration.ofMinutes(1));
     private Rule cancel = new Rule(30, Duration.ofMinutes(1));
+    private Rule authenticationFailure = new Rule(10, Duration.ofMinutes(5));
 
     public Rule getRegister() { return register; }
     public void setRegister(Rule register) { this.register = valid(register, "register"); }
@@ -17,6 +18,10 @@ public class ApiRateLimitProperties {
     public void setOrder(Rule order) { this.order = valid(order, "order"); }
     public Rule getCancel() { return cancel; }
     public void setCancel(Rule cancel) { this.cancel = valid(cancel, "cancel"); }
+    public Rule getAuthenticationFailure() { return authenticationFailure; }
+    public void setAuthenticationFailure(Rule authenticationFailure) {
+        this.authenticationFailure = valid(authenticationFailure, "authentication-failure");
+    }
 
     private static Rule valid(Rule value, String name) {
         if (value == null || value.limit() < 1 || value.window() == null

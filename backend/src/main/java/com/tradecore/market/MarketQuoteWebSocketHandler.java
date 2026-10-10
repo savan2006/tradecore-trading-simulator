@@ -9,6 +9,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.time.Duration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -25,7 +26,10 @@ public class MarketQuoteWebSocketHandler extends TextWebSocketHandler {
 
     private static final Logger log = LoggerFactory.getLogger(MarketQuoteWebSocketHandler.class);
     private static final String EXCHANGE = "NSE";
-    private static final int MAX_SUBSCRIPTIONS = 80;
+    private static final int MAX_SUBSCRIPTIONS = 100;
+    private static final int MAX_MESSAGE_BYTES = 1024;
+    private static final int MAX_MESSAGES_PER_WINDOW = 60;
+    private static final long MESSAGE_WINDOW_NANOS = Duration.ofMinutes(1).toNanos();
     private static final int SEND_TIME_LIMIT_MILLIS = 5_000;
     private static final int SEND_BUFFER_LIMIT_BYTES = 64 * 1024;
 
@@ -52,8 +56,20 @@ public class MarketQuoteWebSocketHandler extends TextWebSocketHandler {
     protected void handleTextMessage(WebSocketSession session, TextMessage message) {
         ClientState client = clients.get(session.getId());
         if (client == null) return;
-        if (message.getPayloadLength() > 4096) {
-            sendError(client, "MALFORMED_MESSAGE", "Client messages must be 4 KB or smaller.");
+        synchronized (client) {
+            long now = System.nanoTime();
+            if (now - client.messageWindowStartedAt >= MESSAGE_WINDOW_NANOS) {
+                client.messageWindowStartedAt = now;
+                client.messagesInWindow = 0;
+            }
+            if (client.messagesInWindow >= MAX_MESSAGES_PER_WINDOW) {
+                sendError(client, "MESSAGE_RATE_LIMIT", "Too many messages; try again shortly.");
+                return;
+            }
+            client.messagesInWindow++;
+        }
+        if (message.getPayloadLength() > MAX_MESSAGE_BYTES) {
+            sendError(client, "MALFORMED_MESSAGE", "Client messages must be 1 KB or smaller.");
             return;
         }
 
@@ -105,7 +121,7 @@ public class MarketQuoteWebSocketHandler extends TextWebSocketHandler {
             return;
         }
         if (client.subscriptions.size() >= MAX_SUBSCRIPTIONS) {
-            sendError(client, "SUBSCRIPTION_LIMIT", "A client may subscribe to at most 80 symbols.");
+            sendError(client, "SUBSCRIPTION_LIMIT", "A client may subscribe to at most 100 symbols.");
             return;
         }
         client.subscriptions.add(symbol);
@@ -116,7 +132,8 @@ public class MarketQuoteWebSocketHandler extends TextWebSocketHandler {
             client.subscriptions.remove(symbol);
             sendError(client, "INVALID_SYMBOL", "Symbol is not supported for market streaming.");
         } catch (RuntimeException unavailable) {
-            log.warn("Could not load persisted initial market quote for {}", symbol, unavailable);
+            log.warn("Could not load persisted initial market quote for {} category={}", symbol,
+                    unavailable.getClass().getSimpleName());
             sendError(client, "QUOTE_UNAVAILABLE", "The persisted quote could not be loaded.");
         }
     }
@@ -146,7 +163,8 @@ public class MarketQuoteWebSocketHandler extends TextWebSocketHandler {
             try {
                 client.session.close(CloseStatus.SERVER_ERROR);
             } catch (IOException closeFailure) {
-                log.debug("Unable to close failed market quote WebSocket session {}", session.getId(), closeFailure);
+                log.debug("Unable to close failed market quote WebSocket session {} category={}",
+                        session.getId(), closeFailure.getClass().getSimpleName());
             }
         }
     }
@@ -167,7 +185,8 @@ public class MarketQuoteWebSocketHandler extends TextWebSocketHandler {
         try {
             client.session.sendMessage(new TextMessage(objectMapper.writeValueAsString(payload)));
         } catch (IOException | RuntimeException failure) {
-            log.debug("Removing disconnected or slow market quote WebSocket client {}", client.session.getId(), failure);
+            log.debug("Removing disconnected or slow market quote WebSocket client {} category={}",
+                    client.session.getId(), failure.getClass().getSimpleName());
             remove(client);
         }
     }
@@ -178,7 +197,8 @@ public class MarketQuoteWebSocketHandler extends TextWebSocketHandler {
             try {
                 client.session.close(CloseStatus.SESSION_NOT_RELIABLE);
             } catch (IOException closeFailure) {
-                log.debug("Unable to close market quote WebSocket client {}", client.session.getId(), closeFailure);
+                log.debug("Unable to close market quote WebSocket client {} category={}",
+                        client.session.getId(), closeFailure.getClass().getSimpleName());
             }
         }
     }
@@ -186,6 +206,8 @@ public class MarketQuoteWebSocketHandler extends TextWebSocketHandler {
     private static final class ClientState {
         private final WebSocketSession session;
         private final Set<String> subscriptions = new HashSet<>();
+        private long messageWindowStartedAt = System.nanoTime();
+        private int messagesInWindow;
 
         private ClientState(WebSocketSession session) {
             this.session = session;

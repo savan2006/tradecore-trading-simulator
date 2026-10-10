@@ -150,13 +150,12 @@ export default function AdminPage() {
 
     <section className="panel admin-panel">
       <div className="panel-heading"><div><p className="eyebrow">Schedulers</p><h2>Market-data status</h2></div></div>
-      {marketLoading ? <LoadingState label="Loading scheduler status…" /> : marketError ? <PanelError message={marketError} /> : !marketStatus ? <EmptyState message="Scheduler status is unavailable." /> : <div className="admin-status-grid">
-        <StatusCard title="Quote refresh" enabled={marketStatus.quoteRefreshEnabled} outcome={marketStatus.lastQuoteRefreshOutcome} detail={`Interval ${marketStatus.quoteRefreshInterval} · ${marketStatus.quoteRefreshFailureCount} failures`} attempted={marketStatus.lastQuoteRefreshAttemptAt} succeeded={marketStatus.lastSuccessfulQuoteRefreshAt} />
-        <StatusCard title="Daily candles" enabled={marketStatus.candleRefreshEnabled} outcome={marketStatus.lastCandleRefreshOutcome} detail={`Schedule ${marketStatus.candleRefreshCron} · ${marketStatus.candleRefreshFailureCount} failures`} attempted={marketStatus.lastCandleRefreshAttemptAt} succeeded={marketStatus.lastSuccessfulCandleRefreshAt} />
-        <div className="admin-status-card"><h3>Order execution</h3><StatusBadge status={marketStatus.orderExecutionEnabled ? "ENABLED" : "DISABLED"} /><p>Check interval: {marketStatus.orderExecutionInterval}</p><small>Last execution outcome is not recorded by the current scheduler.</small></div>
-        <div className="admin-status-card"><h3>Intraday square-off</h3><StatusBadge status="SCHEDULED" /><p>Check interval: {marketStatus.squareOffCheckInterval}</p><small>Last square-off outcome is not recorded by the current scheduler.</small></div>
-        <div className="admin-status-card"><h3>Persisted quotes</h3><StatusBadge status={marketStatus.latestPersistedQuoteAt ? "AVAILABLE" : "UNAVAILABLE"} /><p>Latest persisted quote: {formatDate(marketStatus.latestPersistedQuoteAt)}</p><small>Market freshness remains available on quote views.</small></div>
-      </div>}
+      {marketLoading ? <LoadingState label="Loading scheduler status…" /> : marketError ? <PanelError message={marketError} /> : !marketStatus ? <EmptyState message="Scheduler status is unavailable." /> : <>
+        <div className="table-scroll"><table><thead><tr><th>Job</th><th>Outcome</th><th>Started</th><th>Finished</th><th>Duration</th><th>Processed</th><th>Updated</th><th>Skipped</th><th>Failed</th><th>Last error</th></tr></thead><tbody>
+          {marketStatus.jobs.map((job) => <tr key={job.job}><td>{job.job.replaceAll("_", " ")}</td><td><StatusBadge status={job.outcome} /></td><td>{formatDate(job.startedAt)}</td><td>{formatDate(job.finishedAt)}</td><td>{job.durationMs == null ? "—" : `${job.durationMs} ms`}</td><td>{job.processed}</td><td>{job.updated}</td><td>{job.skipped}</td><td>{job.failed}</td><td>{job.lastError ?? "—"}</td></tr>)}
+        </tbody></table></div>
+        <div className="admin-status-card"><h3>Persisted quotes</h3><StatusBadge status={marketStatus.latestPersistedQuoteAt ? "AVAILABLE" : "UNAVAILABLE"} /><p>Latest persisted quote: {formatDate(marketStatus.latestPersistedQuoteAt)}</p></div>
+      </>}
     </section>
   </div>;
 }
@@ -171,10 +170,6 @@ function PanelError({ message }: { message: string }) {
 
 function Pagination({ page, totalPages, hasNext, onChange }: { page: number; totalPages: number; hasNext: boolean; onChange: (page: number) => void }) {
   return <div className="admin-pagination"><span>Page {page + 1}{totalPages > 0 ? ` of ${totalPages}` : ""}</span><div><button className="button-quiet" disabled={page === 0} onClick={() => onChange(page - 1)}>Previous</button><button className="button-quiet" disabled={!hasNext} onClick={() => onChange(page + 1)}>Next</button></div></div>;
-}
-
-function StatusCard({ title, enabled, outcome, detail, attempted, succeeded }: { title: string; enabled: boolean; outcome: string; detail: string; attempted: string | null; succeeded: string | null }) {
-  return <div className="admin-status-card"><h3>{title}</h3><div className="admin-status-badges"><StatusBadge status={enabled ? "ENABLED" : "DISABLED"} /><StatusBadge status={outcome} /></div><p>{detail}</p><small>Last attempt: {formatDate(attempted)}</small><small>Last success: {formatDate(succeeded)}</small></div>;
 }
 
 function formatDate(value: string | null) {

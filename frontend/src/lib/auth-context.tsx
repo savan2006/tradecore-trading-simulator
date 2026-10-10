@@ -1,9 +1,10 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { api, encodeBasicCredential, type AdminOverview, type ApiError } from "@/lib/api";
+import { api, type AdminOverview, type ApiError } from "@/lib/api";
 
 type AuthState = { email: string; basicCredential: string };
+const COOKIE_SESSION_MARKER = "cookie-session";
 type AuthContextValue = {
   session: AuthState | null;
   adminAccess: "signed-out" | "checking" | "allowed" | "forbidden" | "unauthorized" | "unavailable";
@@ -21,16 +22,37 @@ export function AuthProvider({ children }: Readonly<{ children: React.ReactNode 
   const [adminOverview, setAdminOverview] = useState<AdminOverview | null>(null);
   const [accessRefresh, setAccessRefresh] = useState(0);
   const signIn = useCallback(async (email: string, password: string) => {
-    const basicCredential = encodeBasicCredential(email.trim(), password);
-    await api.verifyLogin(basicCredential);
-    setSession({ email: email.trim(), basicCredential });
+    const response = await fetch("/api/session/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: email.trim(), password }), cache: "no-store" });
+    if (!response.ok) {
+      const error = new Error((await response.json().catch(() => null))?.message ?? "Unable to sign in.") as ApiError;
+      error.status = response.status;
+      throw error;
+    }
+    const user = await response.json() as { email: string };
+    setSession({ email: user.email, basicCredential: COOKIE_SESSION_MARKER });
   }, []);
-  const signOut = useCallback(() => {
-    setSession(null);
-    setAdminAccess("signed-out");
-    setAdminOverview(null);
+  const signOut = useCallback(async () => {
+    try {
+      await fetch("/api/session/logout", { method: "POST", cache: "no-store" });
+    } finally {
+      setSession(null);
+      setAdminAccess("signed-out");
+      setAdminOverview(null);
+    }
   }, []);
   const refreshAdminAccess = useCallback(() => setAccessRefresh((value) => value + 1), []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/session/me", { cache: "no-store", signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) return;
+        const user = await response.json() as { email?: string };
+        if (user.email) setSession({ email: user.email, basicCredential: COOKIE_SESSION_MARKER });
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, []);
 
   useEffect(() => {
     if (!session) {
@@ -41,7 +63,7 @@ export function AuthProvider({ children }: Readonly<{ children: React.ReactNode 
     const controller = new AbortController();
     setAdminAccess("checking");
     setAdminOverview(null);
-    api.adminOverview(session.basicCredential, controller.signal)
+    api.adminOverview("", controller.signal)
       .then((overview) => {
         if (!controller.signal.aborted) {
           setAdminOverview(overview);

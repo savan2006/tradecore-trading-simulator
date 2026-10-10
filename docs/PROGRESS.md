@@ -25,12 +25,12 @@ with one unpushed commit at audit time. Known defects: see `docs/PROJECT_CONTEXT
 | C2 | Fix execution starvation + intraday square-off timing | M | DONE | 2026-10-09 | Added bounded 100-row pending-order sweep and 10-minute pre-close square-off window with post-close retries. Backend tests: 238 (0 failures, 3 skipped). |  |
 | C4 | Financial invariants test + read-only reconciliation endpoint | M | DONE | 2026-10-09 | Added admin-only read-only reconciliation checks and service-sequence/corruption tests. Backend tests: 241 (0 failures, 3 skipped). |  |
 | C3 | Market-data robustness + 80-company completeness report | M | DONE | 2026-10-09 | Removed fixed universe-size gate, skipped older quotes, added admin completeness report. Backend tests: 245 (0 failures, 3 skipped). |  |
-| C5 | Operational status tracking for background jobs | S | NOT_STARTED |  |  |  |
-| S1 | Security hardening (backend + frontend headers) | M | NOT_STARTED |  |  |  |
-| S2 | Production configuration, proxy-safe client IP, logging | M | NOT_STARTED |  |  |  |
-| S3 | Real login session (httpOnly cookie, survives refresh) | M | NOT_STARTED |  |  |  |
-| F1 | Frontend bug fixes found in the code | S | NOT_STARTED |  |  |  |
-| F2 | Order timeline, fill notifications, market-session endpoint + badge | M | NOT_STARTED |  |  |  |
+| C5 | Operational status tracking for background jobs | S | DONE | 2026-10-09 | Added in-memory run tracking for six jobs, admin API status table, and sanitized errors. Backend tests: 245 (0 failures, 3 skipped); frontend typecheck/build pass. |  |
+| S1 | Security hardening (backend + frontend headers) | M | DONE | 2026-10-09 | Audited admin writes; restricted CORS/WebSocket; added auth throttling, secure defaults/headers, input bounds, and safer logs. Backend tests: 252 (0 failures, 3 skipped); frontend typecheck/build pass. |  |
+| S2 | Production configuration, proxy-safe client IP, logging | M | DONE | 2026-10-10 | Added production settings, trusted-proxy IP handling, request IDs, and env validation. Backend tests: 256 (0 failures, 3 skipped); frontend typecheck/build pass. |  |
+| S3 | Real login session (httpOnly cookie, survives refresh) | M | DONE | 2026-10-10 | Added encrypted httpOnly login sessions, CSRF checks, refresh restoration, and registration success message. Frontend typecheck/build pass. |  |
+| F1 | Frontend bug fixes found in the code | S | DONE | 2026-10-10 | Fixed frontend styles and Markets text; added order idempotency headers and tightened order action loading guards. Frontend typecheck/build pass. |  |
+| F2 | Order timeline, fill notifications, market-session endpoint + badge | M | BLOCKED | 2026-10-10 | Implemented APIs, notifications, and UI; frontend typecheck/build pass. Backend tests blocked by sandbox Access Denied opening cached Maven JARs. |  |
 | F3 | Frontend final QA: states, mobile, accessibility basics | M | NOT_STARTED |  |  |  |
 | Q1 | OpenAPI / Swagger documentation | M | NOT_STARTED |  |  |  |
 | Q2 | Performance review + controlled performance tests | M | NOT_STARTED |  |  |  |

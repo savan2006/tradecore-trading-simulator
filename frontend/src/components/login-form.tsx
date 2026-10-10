@@ -6,7 +6,7 @@ import Link from "next/link";
 import type { ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 
-export function LoginForm() {
+export function LoginForm({ registered = false }: { registered?: boolean }) {
   const router = useRouter();
   const { signIn } = useAuth();
   const [email, setEmail] = useState("");
@@ -37,6 +37,7 @@ export function LoginForm() {
       <p className="eyebrow">TradeCore account</p>
       <h1 id="login-heading">Sign in to continue</h1>
       <p className="muted">Use your existing TradeCore email and password. Authentication uses HTTP Basic.</p>
+      {registered && <p className="form-success" role="status">Account created. Sign in to continue.</p>}
       <form className="form-stack" onSubmit={submit}>
         <label>Email<input type="email" autoComplete="username" required value={email} onChange={(event) => setEmail(event.target.value)} /></label>
         <label>Password<input type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} /></label>

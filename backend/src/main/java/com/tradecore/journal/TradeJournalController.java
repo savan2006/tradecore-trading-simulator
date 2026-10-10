@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.ResponseStatus;
 
@@ -23,7 +24,7 @@ public class TradeJournalController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public TradeJournalResponse create(Authentication authentication, @RequestBody TradeJournalRequest request) {
+    public TradeJournalResponse create(Authentication authentication, @Valid @RequestBody TradeJournalRequest request) {
         return service.create(authentication.getName(), request);
     }
 
@@ -40,7 +41,7 @@ public class TradeJournalController {
 
     @PutMapping("/{id}")
     public TradeJournalResponse update(Authentication authentication, @PathVariable UUID id,
-            @RequestBody TradeJournalUpdateRequest request) {
+            @Valid @RequestBody TradeJournalUpdateRequest request) {
         return service.update(authentication.getName(), id, request);
     }
 

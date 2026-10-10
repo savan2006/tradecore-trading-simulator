@@ -110,7 +110,7 @@ class AuditLoggingIntegrationTest {
         UUID positionId = UUID.randomUUID();
         jdbc.update("insert into position (id,account_id,instrument_id,trading_mode,quantity,reserved_quantity,average_price,realized_pnl,updated_at,version) values (?,?,?,'INTRADAY',2,0,100,0,?,0)",
                 positionId, user.accountId, tcsId, Timestamp.from(Instant.now()));
-        doReturn(true).when(marketHours).isSessionEnded(any(Instant.class));
+        doReturn(true).when(marketHours).isSquareOffWindow(any(Instant.class));
         assertThat(squareOff.runOnce(Instant.now())).isEqualTo(1);
         Map<String, Object> squareOffAudit = audit("INTRADAY_SQUARE_OFF", positionId);
         assertThat(squareOffAudit.get("actor_user_id")).isEqualTo(user.userId);

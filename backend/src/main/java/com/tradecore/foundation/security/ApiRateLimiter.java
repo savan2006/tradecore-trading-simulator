@@ -49,6 +49,7 @@ public class ApiRateLimiter {
             case "register" -> properties.getRegister();
             case "order" -> properties.getOrder();
             case "cancel" -> properties.getCancel();
+            case "authentication-failure" -> properties.getAuthenticationFailure();
             default -> throw new IllegalArgumentException("Unsupported rate-limited endpoint");
         };
     }

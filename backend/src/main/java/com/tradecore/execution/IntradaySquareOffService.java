@@ -49,7 +49,8 @@ public class IntradaySquareOffService {
         for (UUID orderId : orders.findPendingIntradayOrderIds()) {
             try { cancellations.cancelForSquareOff(orderId); }
             catch (RuntimeException failure) {
-                log.warn("Pending intraday order could not be cancelled during square-off: {}", orderId, failure);
+                log.warn("Pending intraday order could not be cancelled during square-off: {} category={}",
+                        orderId, failure.getClass().getSimpleName());
             }
         }
         for (UUID positionId : positions.findOpenIntradayPositionIds()) {

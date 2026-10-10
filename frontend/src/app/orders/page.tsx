@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { api, formatMoney, type ApiError, type Order, type OrderPage, type TradePage } from "@/lib/api";
+import { api, formatMoney, type ApiError, type Order, type OrderEvent, type OrderPage, type TradePage } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { EmptyState, ErrorState, LoadingState, LoginRequired, PageHeading, StatusBadge } from "@/components/page-states";
 
@@ -25,12 +25,16 @@ export default function OrdersPage() {
   const [detail, setDetail] = useState<Order | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
+  const [events, setEvents] = useState<OrderEvent[]>([]);
+  const [eventsLoading, setEventsLoading] = useState(false);
+  const [eventsError, setEventsError] = useState<string | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [modifyingId, setModifyingId] = useState<string | null>(null);
   const [editQuantity, setEditQuantity] = useState("");
   const [editPrice, setEditPrice] = useState("");
   const [actionMessage, setActionMessage] = useState<{ kind: "success" | "error"; text: string } | null>(null);
+  const modificationRequest = useRef<{ fingerprint: string; key: string } | null>(null);
 
   useEffect(() => {
     if (!session) return;
@@ -77,6 +81,22 @@ export default function OrdersPage() {
     return () => controller.abort();
   }, [session, selectedId, refreshVersion]);
 
+  useEffect(() => {
+    if (!session || !selectedId) {
+      setEvents([]);
+      setEventsError(null);
+      return;
+    }
+    const controller = new AbortController();
+    setEventsLoading(true);
+    setEventsError(null);
+    api.orderEvents(session.basicCredential, selectedId, controller.signal)
+      .then(setEvents)
+      .catch((error: unknown) => { if (!controller.signal.aborted) setEventsError(messageOf(error)); })
+      .finally(() => { if (!controller.signal.aborted) setEventsLoading(false); });
+    return () => controller.abort();
+  }, [session, selectedId, refreshVersion]);
+
   const applyFilters = useCallback((event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setPage(0);
@@ -101,7 +121,7 @@ export default function OrdersPage() {
 
   async function modifyOrder(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!session || !detail || modifyingId) return;
+    if (!session || !detail || modifyingId || cancellingId) return;
     const quantity = Number(editQuantity);
     const price = Number(editPrice);
     if (!Number.isSafeInteger(quantity) || quantity <= 0 || !Number.isFinite(price) || price <= 0) {
@@ -114,7 +134,12 @@ export default function OrdersPage() {
       const input = detail.orderType === "LIMIT"
         ? { quantity, limitPrice: price }
         : { quantity, triggerPrice: price };
-      await api.modifyOrder(session.basicCredential, detail.orderId, input);
+      const fingerprint = JSON.stringify({ orderId: detail.orderId, input });
+      if (modificationRequest.current?.fingerprint !== fingerprint) {
+        modificationRequest.current = { fingerprint, key: crypto.randomUUID() };
+      }
+      await api.modifyOrder(session.basicCredential, detail.orderId, input, modificationRequest.current.key);
+      modificationRequest.current = null;
       setEditing(false);
       setActionMessage({ kind: "success", text: "Pending order modified. Its reservation has been recalculated." });
       setRefreshVersion((value) => value + 1);
@@ -152,16 +177,24 @@ export default function OrdersPage() {
         <div className="order-detail-grid">
           <Detail label="Exchange / symbol" value={`${detail.exchange} · ${detail.symbol}`} /><Detail label="Side / type" value={`${detail.side} · ${detail.orderType}`} /><Detail label="Trading mode" value={detail.tradingMode} /><Detail label="State" value={detail.status} /><Detail label="Requested quantity" value={String(detail.requestedQuantity)} /><Detail label="Executed quantity" value={String(detail.executedQuantity)} /><Detail label="Remaining quantity" value={String(detail.remainingQuantity)} /><Detail label="Limit price" value={detail.limitPrice == null ? "—" : formatMoney(detail.limitPrice)} /><Detail label="Trigger price" value={detail.triggerPrice == null ? "—" : formatMoney(detail.triggerPrice)} /><Detail label="Created" value={formatDate(detail.createdAt)} /><Detail label="Last updated" value={formatDate(detail.updatedAt)} />
         </div>
+        <div className="order-timeline" aria-label="Order timeline">
+          <h3>Order timeline</h3>
+          {eventsLoading ? <p className="muted">Loading order events…</p> : eventsError ? <p className="form-error" role="alert">{eventsError}</p> : events.length ? <ol>
+            {events.map((event, index) => <li key={`${event.occurredAt}-${event.type}-${index}`}>
+              <span className="order-timeline-state">{event.previousState ? `${event.previousState} → ${event.newState}` : event.newState}</span>
+              <span>{event.type.replaceAll("_", " ")}</span><time dateTime={event.occurredAt}>{formatDate(event.occurredAt)}</time>
+            </li>)}
+          </ol> : <p className="muted">No order events are available.</p>}
+        </div>
         {detail.status === "PENDING" && detail.orderType !== "MARKET" && !editing && <button className="secondary-button" type="button" onClick={() => setEditing(true)}>Modify pending order</button>}
         {detail.status === "PENDING" && detail.orderType === "MARKET" && <p className="panel-footnote">Market orders cannot be modified.</p>}
         {editing && detail.status === "PENDING" && detail.orderType !== "MARKET" && <form className="order-filters order-modify-form" onSubmit={modifyOrder}>
           <label>Quantity<input type="number" min="1" step="1" required value={editQuantity} onChange={(event) => setEditQuantity(event.target.value)} /></label>
           <label>{detail.orderType === "LIMIT" ? "Limit price" : "Trigger price"}<input type="number" min="0.000001" step="any" required value={editPrice} onChange={(event) => setEditPrice(event.target.value)} /></label>
-          <button className="secondary-button" type="submit" disabled={modifyingId === detail.orderId}>{modifyingId === detail.orderId ? "Saving…" : "Save changes"}</button>
+          <button className="secondary-button" type="submit" disabled={modifyingId === detail.orderId || cancellingId === detail.orderId}>{modifyingId === detail.orderId ? "Saving…" : "Save changes"}</button>
           <button className="text-button" type="button" disabled={modifyingId === detail.orderId} onClick={() => setEditing(false)}>Discard</button>
         </form>}
-        {detail.status === "PENDING" && <button className="danger-button" type="button" disabled={cancellingId === detail.orderId} onClick={() => cancelOrder(detail.orderId)}>{cancellingId === detail.orderId ? "Cancelling…" : "Cancel pending order"}</button>}
-        <p className="panel-footnote">The order detail API provides the current state and timestamps; it does not expose an event timeline.</p>
+        {detail.status === "PENDING" && <button className="danger-button" type="button" disabled={cancellingId === detail.orderId || modifyingId === detail.orderId} onClick={() => cancelOrder(detail.orderId)}>{cancellingId === detail.orderId ? "Cancelling…" : "Cancel pending order"}</button>}
       </>}
     </section>}
 

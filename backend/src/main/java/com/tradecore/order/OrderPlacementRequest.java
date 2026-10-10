@@ -3,6 +3,7 @@ package com.tradecore.order;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
+import jakarta.validation.constraints.Digits;
 
 import java.math.BigDecimal;
 
@@ -13,8 +14,8 @@ public record OrderPlacementRequest(
         @NotBlank @Size(max = 12) String orderType,
         @NotBlank @Size(max = 12) String tradingMode,
         @Positive long quantity,
-        BigDecimal limitPrice,
-        BigDecimal triggerPrice) {
+        @Digits(integer = 19, fraction = 6) BigDecimal limitPrice,
+        @Digits(integer = 19, fraction = 6) BigDecimal triggerPrice) {
 
     public OrderPlacementRequest(String exchange, String symbol, String side, String orderType,
             String tradingMode, long quantity, BigDecimal limitPrice) {

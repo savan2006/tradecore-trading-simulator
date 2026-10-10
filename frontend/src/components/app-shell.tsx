@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { api } from "@/lib/api";
+import { api, type MarketSession } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { LoginForm } from "@/components/login-form";
 
@@ -28,6 +28,7 @@ export function AppShell({ children }: Readonly<{ children: React.ReactNode }>) 
   const isLogin = pathname === "/login";
   const isPublicAuthPage = isLogin || pathname === "/register";
   const [unreadCount, setUnreadCount] = useState<number | null>(null);
+  const [marketSession, setMarketSession] = useState<MarketSession | null>(null);
 
   useEffect(() => {
     if (!session) {
@@ -49,6 +50,20 @@ export function AppShell({ children }: Readonly<{ children: React.ReactNode }>) 
     };
   }, [session]);
 
+  useEffect(() => {
+    if (!session) {
+      setMarketSession(null);
+      return;
+    }
+    const controller = new AbortController();
+    const refresh = () => api.marketSession(session.basicCredential, controller.signal)
+      .then(setMarketSession)
+      .catch(() => { if (!controller.signal.aborted) setMarketSession(null); });
+    void refresh();
+    const interval = window.setInterval(() => void refresh(), 60_000);
+    return () => { controller.abort(); window.clearInterval(interval); };
+  }, [session]);
+
   return (
     <div className="app-frame">
       <header className="topbar">
@@ -64,6 +79,9 @@ export function AppShell({ children }: Readonly<{ children: React.ReactNode }>) 
           {session && adminAccess === "allowed" && <Link href="/admin/audit-logs" className={pathname === "/admin/audit-logs" ? "nav-link active" : "nav-link"}>Audit logs</Link>}
         </nav>
         <div className="session-tools">
+          {session && marketSession && <span className={`market-session-badge ${marketSession.status === "OPEN" ? "is-open" : "is-closed"}`} title={marketSession.reason ?? undefined}>
+            Market {marketSession.status.toLowerCase()}{marketSession.status === "CLOSED" && ` · next open ${marketSession.nextOpenAt ? formatMarketOpen(marketSession.nextOpenAt) : "unavailable"}`}
+          </span>}
           {session ? <><span className="session-email">{session.email}</span><button className="button-quiet" onClick={() => { signOut(); router.replace("/login"); }}>Sign out</button></> : <Link className="button-quiet" href="/login">Sign in</Link>}
         </div>
       </header>
@@ -73,4 +91,8 @@ export function AppShell({ children }: Readonly<{ children: React.ReactNode }>) 
       <footer className="footer"><span>TradeCore</span><span>Learning with virtual capital</span></footer>
     </div>
   );
+}
+
+function formatMarketOpen(value: string) {
+  return new Date(value).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", weekday: "short", hour: "2-digit", minute: "2-digit" });
 }

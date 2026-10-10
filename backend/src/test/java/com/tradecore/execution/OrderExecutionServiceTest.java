@@ -7,6 +7,7 @@ import com.tradecore.identity.UserRegistrationService;
 import com.tradecore.market.MarketHoursPolicy;
 import com.tradecore.market.MarketDataFreshness;
 import com.tradecore.market.MarketDataIngestionService;
+import com.tradecore.notification.NotificationService;
 import com.tradecore.market.MarketDataProvider;
 import com.tradecore.market.MarketQuoteSnapshot;
 import com.tradecore.order.OrderPlacementRequest;
@@ -37,6 +38,7 @@ import java.util.concurrent.TimeUnit;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doCallRealMethod;
 import static org.mockito.Mockito.doThrow;
@@ -60,6 +62,7 @@ class OrderExecutionServiceTest {
     @Autowired private MarketDataIngestionService ingestion;
     @Autowired private TradingOrderRepository orders;
     @MockitoBean private MarketDataProvider provider;
+    @MockitoSpyBean private NotificationService notifications;
     @MockitoSpyBean private MarketHoursPolicy marketHours;
     @MockitoSpyBean private com.tradecore.ledger.LedgerEntryRepository ledger;
     private UUID instrumentId;
@@ -88,6 +91,20 @@ class OrderExecutionServiceTest {
         assertThat(jdbc.queryForObject("select entry_type from ledger_entry where account_id=? and entry_type<>'INITIAL_DEPOSIT'", String.class, user.account)).isEqualTo("TRADE_DEBIT");
         assertThat(jdbc.queryForObject("select amount from ledger_entry where account_id=? and entry_type='TRADE_DEBIT'", BigDecimal.class, user.account)).isEqualByComparingTo("-202.0000");
         assertEvent(order);
+        assertThat(jdbc.queryForObject("select count(*) from notification where user_id=(select user_id from trading_account where id=?) and notification_type='ORDER_FILLED'", Integer.class, user.account)).isEqualTo(1);
+    }
+
+    @Test
+    void notificationFailureAfterCommitDoesNotUndoCompletedFill() {
+        Account user = account();
+        UUID order = place(user, "BUY", "MARKET", 1, null);
+        doThrow(new IllegalStateException("controlled notification failure")).when(notifications)
+                .createIfAbsent(anyString(), anyString(), anyString(), anyString());
+
+        assertThat(execution.executePending(order)).isTrue();
+
+        assertThat(jdbc.queryForObject("select status from trading_order where id=?", String.class, order)).isEqualTo("FILLED");
+        assertThat(jdbc.queryForObject("select count(*) from execution where order_id=?", Integer.class, order)).isEqualTo(1);
     }
 
     @Test
@@ -290,6 +307,7 @@ class OrderExecutionServiceTest {
         assertThat(execution.executePending(filled)).isTrue();
         assertThat(execution.executePending(filled)).isFalse();
         assertThat(jdbc.queryForObject("select count(*) from execution where order_id=?", Integer.class, filled)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select count(*) from notification where user_id=(select user_id from trading_account where id=?) and notification_type='ORDER_FILLED'", Integer.class, user.account)).isEqualTo(1);
     }
 
     @Test

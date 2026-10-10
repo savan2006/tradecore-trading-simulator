@@ -95,6 +95,11 @@ class AdminRiskLimitApiTest {
         mvc.perform(post(ENDPOINT + "/" + id + "/deactivate").header("Authorization", basic(admin.email())))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.enabled").value(false));
 
+        assertAudit("ADMIN_RISK_LIMIT_CREATE", id, "SUCCESS");
+        assertAudit("ADMIN_RISK_LIMIT_UPDATE", id, "SUCCESS");
+        assertAudit("ADMIN_RISK_LIMIT_ACTIVATE", id, "SUCCESS");
+        assertAudit("ADMIN_RISK_LIMIT_DEACTIVATE", id, "SUCCESS");
+
         assertThat(financialSnapshot()).isEqualTo(before);
         verifyNoInteractions(provider);
     }
@@ -107,6 +112,7 @@ class AdminRiskLimitApiTest {
         mvc.perform(post(ENDPOINT).header("Authorization", basic(admin.email())).contentType("application/json")
                         .content(accountLimit(user.accountId(), "MAX_ORDER_QUANTITY", "20", true)))
                 .andExpect(status().isConflict());
+        assertAudit("ADMIN_RISK_LIMIT_CREATE", null, "FAILURE");
         mvc.perform(post(ENDPOINT).header("Authorization", basic(admin.email())).contentType("application/json")
                         .content(instrumentLimit("INSTRUMENT_BLOCKED", "1", true)))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.scope").value("INSTRUMENT"))
@@ -178,6 +184,13 @@ class AdminRiskLimitApiTest {
                 "trading_order", jdbc.queryForList("select * from trading_order order by id"),
                 "execution", jdbc.queryForList("select * from execution order by id"),
                 "position", jdbc.queryForList("select * from position order by id"));
+    }
+
+    private void assertAudit(String action, UUID targetId, String outcome) {
+        assertThat(jdbc.queryForObject("select count(*) from audit_log where actor_user_id="
+                        + "(select id from app_user where email=?) and action=? and entity_id is not distinct from ? "
+                        + "and metadata like ?", Integer.class,
+                admin.email(), action, targetId, "%\"outcome\":\"" + outcome + "\"%")).isEqualTo(1);
     }
 
     private static String basic(String email) {

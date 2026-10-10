@@ -82,6 +82,33 @@ class MarketHoursPolicyTest {
         assertThat(policy.isSessionEnded(at("2027-01-04", "16:00"))).isFalse();
     }
 
+    @Test
+    void sessionStatusReportsWeekendHolidaySpecialHoursAndNextOpen() {
+        MarketSessionRepository calendar = mock(MarketSessionRepository.class);
+        LocalDate holiday = LocalDate.parse("2027-01-01");
+        LocalDate special = LocalDate.parse("2027-01-02");
+        when(calendar.findByTradingDateAndActiveTrue(holiday)).thenReturn(Optional.of(
+                new MarketSession(holiday, true, null, null, "holiday")));
+        when(calendar.findByTradingDateAndActiveTrue(special)).thenReturn(Optional.of(
+                new MarketSession(special, true, at(special, LocalTime.of(17, 0)), at(special, LocalTime.of(18, 0)), "special")));
+        MarketHoursPolicy policy = new MarketHoursPolicy(new MarketDataRefreshProperties(), calendar);
+
+        var weekend = policy.sessionStatus(at("2027-01-03", "10:00"));
+        assertThat(weekend.status()).isEqualTo("CLOSED");
+        assertThat(weekend.reason()).isEqualTo("WEEKEND");
+        assertThat(weekend.nextOpenAt()).isEqualTo(at("2027-01-04", "09:15"));
+
+        var holidayStatus = policy.sessionStatus(at("2027-01-01", "10:00"));
+        assertThat(holidayStatus.reason()).isEqualTo("HOLIDAY");
+        assertThat(holidayStatus.openTime()).isNull();
+
+        var specialStatus = policy.sessionStatus(at("2027-01-02", "17:30"));
+        assertThat(specialStatus.status()).isEqualTo("OPEN");
+        assertThat(specialStatus.reason()).isEqualTo("SPECIAL_SESSION");
+        assertThat(specialStatus.openTime()).isEqualTo(LocalTime.of(17, 0));
+        assertThat(specialStatus.closeTime()).isEqualTo(LocalTime.of(18, 0));
+    }
+
     private static Instant at(String date, String time) {
         return LocalDate.parse(date).atTime(LocalTime.parse(time)).atZone(NSE).toInstant();
     }

@@ -50,7 +50,7 @@ export default function RegisterPage() {
       await api.register({ displayName: name, email: normalizedEmail, password });
       setPassword("");
       setConfirmPassword("");
-      router.replace("/login");
+      router.replace("/login?registered=1");
     } catch (cause) {
       const status = (cause as ApiError)?.status;
       setError(status === 409

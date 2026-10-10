@@ -186,6 +186,15 @@ export type Order = {
   updatedAt: string;
 };
 export type OrderModification = { quantity: number; limitPrice?: number; triggerPrice?: number };
+export type OrderEvent = { type: string; previousState: string | null; newState: string; occurredAt: string };
+export type MarketSession = {
+  tradingDate: string;
+  status: "OPEN" | "CLOSED";
+  reason: "WEEKEND" | "HOLIDAY" | "OUTSIDE_HOURS" | "SPECIAL_SESSION" | null;
+  openTime: string | null;
+  closeTime: string | null;
+  nextOpenAt: string | null;
+};
 
 export type OrderPage = { content: Order[]; page: number; size: number; totalElements: number; totalPages: number; hasNext: boolean };
 export type Trade = {
@@ -409,6 +418,8 @@ export type AdminMarketStatus = {
   orderExecutionInterval: string;
   squareOffCheckInterval: string;
   latestPersistedQuoteAt: string | null;
+    jobs: Array<{ job: string; startedAt: string | null; finishedAt: string | null; durationMs: number | null;
+      outcome: string; processed: number; updated: number; skipped: number; failed: number; lastError: string | null }>;
 };
 export type AdminAuditLog = {
   id: string;
@@ -442,7 +453,7 @@ export type DashboardData = {
 async function request<T>(path: string, basicCredential: string, signal?: AbortSignal): Promise<T> {
   const response = await fetch(`/api/backend${path}`, {
     method: "GET",
-    headers: { Authorization: `Basic ${basicCredential}`, Accept: "application/json" },
+    headers: { Accept: "application/json" },
     cache: "no-store",
     signal,
   });
@@ -461,7 +472,7 @@ async function request<T>(path: string, basicCredential: string, signal?: AbortS
 async function mutate<T>(path: string, basicCredential: string): Promise<T> {
   const response = await fetch(`/api/backend${path}`, {
     method: "POST",
-    headers: { Authorization: `Basic ${basicCredential}`, Accept: "application/json" },
+    headers: { Accept: "application/json" },
     cache: "no-store",
   });
   if (!response.ok) {
@@ -476,13 +487,13 @@ async function mutate<T>(path: string, basicCredential: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-async function write<T>(method: "POST" | "PUT" | "DELETE", path: string, basicCredential: string, body?: unknown): Promise<T> {
+async function write<T>(method: "POST" | "PUT" | "DELETE", path: string, basicCredential: string, body?: unknown, idempotencyKey?: string): Promise<T> {
   const response = await fetch(`/api/backend${path}`, {
     method,
     headers: {
-      Authorization: `Basic ${basicCredential}`,
       Accept: "application/json",
       ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+      ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
     },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     cache: "no-store",
@@ -525,13 +536,13 @@ async function registerRequest(body: { displayName: string; email: string; passw
   return response.json() as Promise<RegistrationResult>;
 }
 
-async function placeOrderRequest(basicCredential: string, body: PlaceOrderRequest): Promise<PlacedOrder> {
+async function placeOrderRequest(basicCredential: string, body: PlaceOrderRequest, idempotencyKey: string): Promise<PlacedOrder> {
   const response = await fetch("/api/backend/api/v1/orders", {
     method: "POST",
     headers: {
-      Authorization: `Basic ${basicCredential}`,
       Accept: "application/json",
       "Content-Type": "application/json",
+      "Idempotency-Key": idempotencyKey,
     },
     body: JSON.stringify(body),
     cache: "no-store",
@@ -581,6 +592,10 @@ export const api = {
   },
   order: (basic: string, orderId: string, signal?: AbortSignal) =>
     request<Order>(`/api/v1/orders/${encodeURIComponent(orderId)}`, basic, signal),
+  orderEvents: (basic: string, orderId: string, signal?: AbortSignal) =>
+    request<OrderEvent[]>(`/api/v1/orders/${encodeURIComponent(orderId)}/events`, basic, signal),
+  marketSession: (basic: string, signal?: AbortSignal) =>
+    request<MarketSession>("/api/v1/market/session", basic, signal),
   trades: (basic: string, page = 0, size = 10, signal?: AbortSignal) =>
     request<TradePage>(`/api/v1/trades?page=${page}&size=${size}`, basic, signal),
   journal: (basic: string, page = 0, size = 20, signal?: AbortSignal) =>
@@ -599,8 +614,8 @@ export const api = {
     write<void>("DELETE", `/api/v1/journal/${encodeURIComponent(id)}`, basic),
   cancelOrder: (basic: string, orderId: string) =>
     mutate<Cancellation>(`/api/v1/orders/${encodeURIComponent(orderId)}/cancel`, basic),
-  modifyOrder: (basic: string, orderId: string, input: OrderModification) =>
-    write<Order>("PUT", `/api/v1/orders/${encodeURIComponent(orderId)}`, basic, input),
+  modifyOrder: (basic: string, orderId: string, input: OrderModification, idempotencyKey: string) =>
+    write<Order>("PUT", `/api/v1/orders/${encodeURIComponent(orderId)}`, basic, input, idempotencyKey),
   placeOrder: placeOrderRequest,
   previewOrder: (basic: string, body: PlaceOrderRequest) =>
     write<OrderPreview>("POST", "/api/v1/orders/preview", basic, body),

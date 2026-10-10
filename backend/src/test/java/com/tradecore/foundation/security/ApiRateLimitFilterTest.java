@@ -17,7 +17,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 
 class ApiRateLimitFilterTest {
     private final ApiRateLimiter limiter = mock(ApiRateLimiter.class);
-    private final ApiRateLimitFilter filter = new ApiRateLimitFilter(limiter);
+    private final ApiRateLimitFilter filter = new ApiRateLimitFilter(limiter, List.of());
 
     @AfterEach
     void clearSecurityContext() {
@@ -37,6 +37,29 @@ class ApiRateLimitFilterTest {
         assertThat(response.getStatus()).isEqualTo(429);
         assertThat(response.getHeader("Retry-After")).isEqualTo("3600");
         assertThat(continued).isFalse();
+    }
+
+    @Test
+    void trustedProxyMaySupplyOriginalClientAddress() throws Exception {
+        ApiRateLimitFilter trustedFilter = new ApiRateLimitFilter(limiter, List.of("10.20.0.0/16"));
+        when(limiter.allow("register", "ip:198.51.100.25")).thenReturn(true);
+        MockHttpServletRequest request = request("POST", "/api/v1/auth/register", "10.20.1.7");
+        request.addHeader("X-Forwarded-For", "198.51.100.25, 10.20.1.7");
+
+        trustedFilter.doFilter(request, new MockHttpServletResponse(), (req, res) -> { });
+
+        verify(limiter).allow("register", "ip:198.51.100.25");
+    }
+
+    @Test
+    void untrustedRemoteAddressCannotChooseForwardedIdentity() throws Exception {
+        when(limiter.allow("register", "ip:203.0.113.8")).thenReturn(true);
+        MockHttpServletRequest request = request("POST", "/api/v1/auth/register", "203.0.113.8");
+        request.addHeader("X-Forwarded-For", "198.51.100.25");
+
+        filter.doFilter(request, new MockHttpServletResponse(), (req, res) -> { });
+
+        verify(limiter).allow("register", "ip:203.0.113.8");
     }
 
     @Test

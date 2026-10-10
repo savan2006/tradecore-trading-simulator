@@ -6,6 +6,7 @@ import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.LocalTime;
 import java.time.LocalDate;
+import java.util.Map;
 import java.util.Optional;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -48,6 +49,34 @@ public class MarketHoursPolicy {
         if (window.isEmpty()) return false;
         LocalTime localTime = marketTime.toLocalTime();
         return !localTime.isBefore(window.get().opens()) && localTime.isBefore(window.get().closes());
+    }
+
+    public MarketSessionResponse sessionStatus(Instant instant) {
+        ZonedDateTime marketTime = instant.atZone(marketZone);
+        LocalDate date = marketTime.toLocalDate();
+        MarketSession configured = calendar == null ? null : calendar.findByTradingDateAndActiveTrue(date).orElse(null);
+        Optional<SessionWindow> window = sessionWindow(date);
+        boolean open = window.map(value -> !marketTime.toLocalTime().isBefore(value.opens())
+                && marketTime.toLocalTime().isBefore(value.closes())).orElse(false);
+        boolean special = configured != null && configured.getOpensAt() != null && configured.getClosesAt() != null;
+        String reason = open ? (special ? "SPECIAL_SESSION" : null)
+                : special ? "SPECIAL_SESSION"
+                : configured != null && (configured.isHoliday() || !"OPEN".equals(configured.getSessionState())) ? "HOLIDAY"
+                : configured == null && (date.getDayOfWeek() == DayOfWeek.SATURDAY || date.getDayOfWeek() == DayOfWeek.SUNDAY)
+                        ? "WEEKEND" : "OUTSIDE_HOURS";
+        Instant nextOpenAt = null;
+        for (int offset = 0; offset <= 30; offset++) {
+            LocalDate candidateDate = date.plusDays(offset);
+            Optional<SessionWindow> candidate = sessionWindow(candidateDate);
+            if (candidate.isEmpty()) continue;
+            Instant candidateOpen = candidateDate.atTime(candidate.get().opens()).atZone(marketZone).toInstant();
+            if (candidateOpen.isAfter(instant)) {
+                nextOpenAt = candidateOpen;
+                break;
+            }
+        }
+        return new MarketSessionResponse(date, open ? "OPEN" : "CLOSED", reason,
+                window.map(SessionWindow::opens).orElse(null), window.map(SessionWindow::closes).orElse(null), nextOpenAt);
     }
 
     /** True at or after the effective session close on a configured trading date. */

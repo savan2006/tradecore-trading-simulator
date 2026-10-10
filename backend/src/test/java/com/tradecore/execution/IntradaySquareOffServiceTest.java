@@ -98,6 +98,8 @@ class IntradaySquareOffServiceTest {
                 .isEqualByComparingTo("495");
         assertThat(jdbc.queryForObject("select count(*) from trading_order where account_id=? and side='SELL' and trading_mode='INTRADAY' and status='FILLED'", Integer.class, account.id))
                 .isEqualTo(1);
+        assertThat(jdbc.queryForObject("select count(*) from notification where user_id=(select user_id from trading_account where id=?) and notification_type in ('ORDER_FILLED','INTRADAY_SQUARE_OFF')", Integer.class, account.id))
+                .isEqualTo(2);
 
         assertThat(squareOff.runOnce(AFTER_CLOSE.plusSeconds(30))).isZero();
         assertThat(jdbc.queryForObject("select count(*) from execution where account_id=?", Integer.class, account.id)).isEqualTo(1);

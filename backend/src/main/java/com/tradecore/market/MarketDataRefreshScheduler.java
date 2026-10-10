@@ -8,8 +8,10 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import com.tradecore.admin.JobRunTracker;
 
 /** Scheduled entry points that delegate all provider, validation, and persistence work to ingestion. */
 @Component
@@ -20,6 +22,7 @@ public class MarketDataRefreshScheduler {
     private final MarketDataIngestionService ingestionService;
     private final MarketDataRefreshProperties properties;
     private final MarketHoursPolicy marketHoursPolicy;
+    private final JobRunTracker tracker;
     private final AtomicBoolean quoteRunning = new AtomicBoolean();
     private final AtomicBoolean candleRunning = new AtomicBoolean();
     private final AtomicReference<Instant> lastSuccessfulQuoteRunAt = new AtomicReference<>();
@@ -31,11 +34,18 @@ public class MarketDataRefreshScheduler {
     private final AtomicLong quoteFailures = new AtomicLong();
     private final AtomicLong candleFailures = new AtomicLong();
 
+    @Autowired
     public MarketDataRefreshScheduler(MarketDataIngestionService ingestionService,
-            MarketDataRefreshProperties properties, MarketHoursPolicy marketHoursPolicy) {
+            MarketDataRefreshProperties properties, MarketHoursPolicy marketHoursPolicy, JobRunTracker tracker) {
         this.ingestionService = ingestionService;
         this.properties = properties;
         this.marketHoursPolicy = marketHoursPolicy;
+        this.tracker = tracker;
+    }
+
+    public MarketDataRefreshScheduler(MarketDataIngestionService ingestionService,
+            MarketDataRefreshProperties properties, MarketHoursPolicy marketHoursPolicy) {
+        this(ingestionService, properties, marketHoursPolicy, new JobRunTracker());
     }
 
     @Scheduled(
@@ -48,10 +58,12 @@ public class MarketDataRefreshScheduler {
     /** Public for controlled operations and deterministic tests; production calls are scheduled above. */
     public void runQuoteRefresh(Instant now) {
         if (!properties.isQuoteEnabled()) {
+            tracker.skipped("QUOTE_REFRESH");
             return;
         }
         if (!marketHoursPolicy.isRegularSession(now)) {
             log.debug("Market quote refresh skipped outside regular NSE session at {}", now);
+            tracker.skipped("QUOTE_REFRESH");
             return;
         }
         run("quotes", quoteRunning, quoteFailures, lastSuccessfulQuoteRunAt,
@@ -69,6 +81,7 @@ public class MarketDataRefreshScheduler {
     /** Runs the existing bounded, idempotent one-month daily-candle ingestion. */
     public void runCandleRefresh() {
         if (!properties.isCandleEnabled()) {
+            tracker.skipped("DAILY_CANDLE_REFRESH");
             return;
         }
         run("daily-candles", candleRunning, candleFailures, lastSuccessfulCandleRunAt,
@@ -89,17 +102,21 @@ public class MarketDataRefreshScheduler {
             AtomicReference<Instant> lastSuccess, AtomicReference<Instant> lastAttemptAt,
             AtomicReference<String> lastOutcome, IngestionOperation operation) {
         if (!running.compareAndSet(false, true)) {
+            tracker.skipped(jobName.equals("quotes") ? "QUOTE_REFRESH" : "DAILY_CANDLE_REFRESH");
             log.warn("Market-data {} refresh skipped because the previous run is still active", jobName);
             return;
         }
 
         Instant startedAt = Instant.now();
+        String trackedJob = jobName.equals("quotes") ? "QUOTE_REFRESH" : "DAILY_CANDLE_REFRESH";
+        Instant trackedStart = tracker.start(trackedJob);
         lastAttemptAt.set(startedAt);
         lastOutcome.set("RUNNING");
         long startedNanos = System.nanoTime();
         log.info("Market-data {} refresh started at {}", jobName, startedAt);
         try {
             MarketDataIngestionResult result = operation.ingest();
+            tracker.finish(trackedJob, trackedStart, "SUCCESS", result.received(), result.updated(), result.skipped(), 0, null);
             Instant completedAt = Instant.now();
             lastSuccess.set(completedAt);
             lastOutcome.set("SUCCESS");
@@ -109,12 +126,12 @@ public class MarketDataRefreshScheduler {
                     jobName, completedAt, elapsedMillis, result.received(), result.inserted(), result.updated(),
                     result.skipped(), result.stale(), lastSuccess.get());
         } catch (RuntimeException failure) {
+            tracker.finish(trackedJob, trackedStart, "FAILURE", 0, 0, 0, 1, failure.getMessage());
             long failureCount = failures.incrementAndGet();
             lastOutcome.set("FAILED");
             long elapsedMillis = (System.nanoTime() - startedNanos) / 1_000_000;
-            log.error("Market-data {} refresh failed category={} durationMs={} failures={} "
-                            + "lastSuccessfulRunAt={}",
-                    jobName, failureCategory(failure), elapsedMillis, failureCount, lastSuccess.get(), failure);
+            log.error("Market-data {} refresh failed category={} durationMs={} failures={} lastSuccessfulRunAt={}",
+                    jobName, failureCategory(failure), elapsedMillis, failureCount, lastSuccess.get());
         } finally {
             if ("RUNNING".equals(lastOutcome.get())) lastOutcome.set("FAILED");
             running.set(false);

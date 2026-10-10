@@ -43,13 +43,15 @@ public class AdminOperationsService {
     private final MarketDataRefreshProperties marketProperties;
     private final ExecutionSchedulingProperties executionProperties;
     private final String squareOffInterval;
+    private final JobRunTracker jobRunTracker;
 
     public AdminOperationsService(UserRepository users, TradingAccountRepository accounts,
             TradingOrderRepository orders, PositionRepository positions, NotificationRepository notifications,
             InstrumentRepository instruments, MarketQuoteRepository quotes,
             MarketDataRefreshScheduler marketScheduler, MarketDataRefreshProperties marketProperties,
             ExecutionSchedulingProperties executionProperties,
-            @Value("${tradecore.intraday.square-off-check-interval:PT30S}") String squareOffInterval) {
+            @Value("${tradecore.intraday.square-off-check-interval:PT30S}") String squareOffInterval,
+            JobRunTracker jobRunTracker) {
         this.users = users;
         this.accounts = accounts;
         this.orders = orders;
@@ -61,6 +63,7 @@ public class AdminOperationsService {
         this.marketProperties = marketProperties;
         this.executionProperties = executionProperties;
         this.squareOffInterval = squareOffInterval;
+        this.jobRunTracker = jobRunTracker;
     }
 
     @Transactional(readOnly = true)
@@ -126,7 +129,7 @@ public class AdminOperationsService {
                 marketScheduler.getLastCandleOutcome(), marketScheduler.getLastSuccessfulCandleRunAt(),
                 marketScheduler.getCandleFailureCount(), executionProperties.isEnabled(),
                 executionProperties.getInterval().toString(), squareOffInterval,
-                quotes.findLatestReceivedAt().orElse(null));
+                quotes.findLatestReceivedAt().orElse(null), jobRunTracker.snapshot());
     }
 
     private static AdminOrderResponse orderResponse(TradingOrder order) {

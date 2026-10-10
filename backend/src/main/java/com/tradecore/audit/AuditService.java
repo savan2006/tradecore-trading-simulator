@@ -47,6 +47,25 @@ public class AuditService {
         }
     }
 
+    public void recordOutcome(String actorEmail, String action, String targetType, UUID targetId, String outcome) {
+        if (!"SUCCESS".equals(outcome) && !"FAILURE".equals(outcome)) {
+            throw new IllegalArgumentException("Audit outcome must be SUCCESS or FAILURE");
+        }
+        String normalizedActor = actorEmail == null || actorEmail.isBlank()
+                ? null : actorEmail.trim().toLowerCase(Locale.ROOT);
+        Instant occurredAt = Instant.now();
+        String metadata = "{\"outcome\":\"" + outcome + "\"}";
+        Runnable write = () -> writeSafely(normalizedActor, action, targetType, targetId, occurredAt, metadata);
+        if (TransactionSynchronizationManager.isActualTransactionActive()
+                && TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override public void afterCommit() { write.run(); }
+            });
+        } else {
+            write.run();
+        }
+    }
+
     private void writeSafely(String actorEmail, String action, String targetType, UUID targetId,
             Instant occurredAt, String metadata) {
         try {

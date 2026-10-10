@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
-import { api, formatMoney, type OrderPreview, type PlaceOrderRequest, type Quote } from "@/lib/api";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { api, formatMoney, type MarketSession, type OrderPreview, type PlaceOrderRequest, type Quote } from "@/lib/api";
 import { useApiQuery } from "@/lib/use-api-query";
 import { EmptyState, ErrorState, LoadingState, PageHeading, StatusBadge } from "@/components/page-states";
 import { useAuth } from "@/lib/auth-context";
@@ -74,6 +74,17 @@ function OrderPanel({ exchange, symbol, credential }: { exchange: string; symbol
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [placed, setPlaced] = useState<PlacedOrder | null>(null);
+  const [marketSession, setMarketSession] = useState<MarketSession | null>(null);
+  const idempotencyRequest = useRef<{ fingerprint: string; key: string } | null>(null);
+
+  useEffect(() => {
+    if (!credential) { setMarketSession(null); return; }
+    const controller = new AbortController();
+    api.marketSession(credential, controller.signal).then(setMarketSession).catch(() => {
+      if (!controller.signal.aborted) setMarketSession(null);
+    });
+    return () => controller.abort();
+  }, [credential]);
 
   function orderRequest(): PlaceOrderRequest {
     return { exchange, symbol, side, orderType, tradingMode, quantity: Number(quantity),
@@ -96,7 +107,13 @@ function OrderPanel({ exchange, symbol, credential }: { exchange: string; symbol
     setError(null);
     setPlaced(null);
     try {
-      setPlaced(await api.placeOrder(credential, orderRequest()));
+      const request = orderRequest();
+      const fingerprint = JSON.stringify(request);
+      if (idempotencyRequest.current?.fingerprint !== fingerprint) {
+        idempotencyRequest.current = { fingerprint, key: crypto.randomUUID() };
+      }
+      setPlaced(await api.placeOrder(credential, request, idempotencyRequest.current.key));
+      idempotencyRequest.current = null;
     } catch (cause) {
       const requestError = cause as ApiError;
       setError(requestError.message || "The order could not be placed.");
@@ -108,6 +125,7 @@ function OrderPanel({ exchange, symbol, credential }: { exchange: string; symbol
   return <section className="panel order-panel" aria-labelledby="order-panel-title">
     <p className="eyebrow">Virtual trading</p><h2 id="order-panel-title">Place an order</h2>
     {!credential ? <p className="muted">Sign in to place a paper order. <Link href="/login">Go to login</Link></p> : <>
+      {marketSession?.status === "CLOSED" && <p className="notice notice-stale market-session-warning" role="status">The market is closed ({marketSession.reason?.toLowerCase().replaceAll("_", " ")}). Orders remain subject to market-session and quote checks.{marketSession.nextOpenAt && ` Next open: ${new Date(marketSession.nextOpenAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", weekday: "short", hour: "2-digit", minute: "2-digit" })}.`}</p>}
       <form className="order-form" onSubmit={submit}>
         <label>Side<select value={side} onChange={(event) => setSide(event.target.value as "BUY" | "SELL")}><option value="BUY">BUY</option><option value="SELL">SELL</option></select></label>
         <label>Order type<select value={orderType} onChange={(event) => setOrderType(event.target.value as "MARKET" | "LIMIT" | "STOP_MARKET")}><option value="MARKET">MARKET</option><option value="LIMIT">LIMIT</option><option value="STOP_MARKET">STOP_MARKET</option></select></label>
@@ -116,7 +134,7 @@ function OrderPanel({ exchange, symbol, credential }: { exchange: string; symbol
         {orderType === "LIMIT" && <label>Limit price (INR)<input type="number" min="0.000001" step="0.000001" required value={limitPrice} onChange={(event) => setLimitPrice(event.target.value)} /></label>}
         {orderType === "STOP_MARKET" && <label>Trigger price (INR)<input type="number" min="0.000001" step="0.000001" required value={triggerPrice} onChange={(event) => setTriggerPrice(event.target.value)} /></label>}
         {orderType === "STOP_MARKET" && <p className="panel-footnote">A STOP_MARKET order remains pending until its trigger condition is reached using an eligible persisted quote. BUY triggers at or above the trigger price; SELL triggers at or below it. When triggered, it executes using the current eligible quote and is not guaranteed to fill at the trigger price.</p>}
-        <div className="button-row"><button type="button" className="secondary-button" onClick={runPreview} disabled={previewing || sending}>{previewing ? "Checking..." : "Preview order"}</button><button type="submit" className="primary-button" disabled={sending}>{sending ? "Sending..." : "Place paper order"}</button></div>
+        <div className="button-row"><button type="button" className="secondary-button" onClick={runPreview} disabled={previewing || sending}>{previewing ? "Checking..." : "Preview order"}</button><button type="submit" className="button-primary" disabled={sending || previewing}>{sending ? "Sending..." : "Place paper order"}</button></div>
       </form>
       {previewError && <p className="notice notice-stale order-message" role="alert">{previewError}</p>}
       {preview && <div className={`notice order-message ${preview.valid ? "notice-success" : "notice-stale"}`} role="status">

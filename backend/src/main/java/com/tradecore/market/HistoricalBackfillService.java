@@ -12,10 +12,12 @@ import java.util.concurrent.RejectedExecutionException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
+import com.tradecore.admin.JobRunTracker;
 
 /** One serial, resumable-at-candle-granularity background job. */
 @Service
@@ -28,15 +30,22 @@ public class HistoricalBackfillService {
     private final MarketDataIngestionService ingestion;
     private final HistoricalBackfillProperties properties;
     private final ThreadPoolTaskExecutor executor;
+    private final JobRunTracker tracker;
+    private volatile Instant trackedStart;
     private volatile HistoricalBackfillStatus status = idle();
 
+    @Autowired
     public HistoricalBackfillService(MarketDataIngestionService ingestion,
             HistoricalBackfillProperties properties,
-            @Qualifier("historicalBackfillExecutor") ThreadPoolTaskExecutor executor) {
+            @Qualifier("historicalBackfillExecutor") ThreadPoolTaskExecutor executor, JobRunTracker tracker) {
         this.ingestion = ingestion;
         this.properties = properties;
         this.executor = executor;
+        this.tracker = tracker;
     }
+
+    public HistoricalBackfillService(MarketDataIngestionService ingestion, HistoricalBackfillProperties properties,
+            ThreadPoolTaskExecutor executor) { this(ingestion, properties, executor, new JobRunTracker()); }
 
     public synchronized HistoricalBackfillStatus start(HistoricalBackfillRequest request) {
         if (isActive(status.state())) {
@@ -49,9 +58,9 @@ public class HistoricalBackfillService {
         try {
             selected = ingestion.resolveHistoricalBackfillInstruments(requestedSymbols);
         } catch (IllegalArgumentException failure) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, failure.getMessage());
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Requested instruments could not be resolved");
         } catch (MarketDataProviderException failure) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, failure.getMessage());
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Market data provider could not resolve instruments");
         }
         int batchSize = properties.getInstrumentBatchSize();
         if (batchSize < 1 || batchSize > MAX_BATCH_SIZE) {
@@ -64,9 +73,11 @@ public class HistoricalBackfillService {
                 fromDate, throughDate, batchSize, batchCount(selected.size(), batchSize), 0, selected.size(),
                 0, 0, 0, 0, 0, 0, null, now, now, List.of());
         status = queued;
+        trackedStart = tracker.start("HISTORICAL_BACKFILL");
         try {
             executor.execute(() -> run(queued, selected));
         } catch (RejectedExecutionException failure) {
+            tracker.finish("HISTORICAL_BACKFILL", trackedStart, "FAILURE", 0, 0, 0, 1, failure.getMessage());
             status = withState(queued, "FAILED", Instant.now());
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Historical backfill executor is busy");
         }
@@ -125,12 +136,18 @@ public class HistoricalBackfillService {
                     status = snapshot(queued, failed == 0 ? "COMPLETED" : "COMPLETED_WITH_ERRORS",
                             queued.totalBatches(), null, processed, succeeded, failed, received, inserted, skipped,
                             Instant.now(), failures);
+                    tracker.finish("HISTORICAL_BACKFILL", trackedStart, failed == 0 ? "SUCCESS" : "FAILURE",
+                            processed, inserted, skipped, failed, failures.isEmpty() ? null : failures.get(0).message());
                 }
             }
         } catch (RuntimeException failure) {
-            log.error("Historical backfill job {} failed", queued.jobId(), failure);
+            log.error("Historical backfill job {} failed category={}", queued.jobId(), category(failure));
             synchronized (this) {
-                if (queued.jobId().equals(status.jobId())) status = withState(status, "FAILED", Instant.now());
+                if (queued.jobId().equals(status.jobId())) {
+                    status = withState(status, "FAILED", Instant.now());
+                    tracker.finish("HISTORICAL_BACKFILL", trackedStart, "FAILURE", status.processedInstruments(),
+                            status.candlesInserted(), status.candlesSkipped(), status.failedInstruments() + 1, failure.getMessage());
+                }
             }
         }
     }
@@ -199,13 +216,16 @@ public class HistoricalBackfillService {
     private static String category(RuntimeException failure) {
         if (failure instanceof HistoricalBackfillPartialFailure partial) failure = partial.failure();
         if (failure instanceof MarketDataProviderException providerFailure) return providerFailure.category().name();
-        return failure.getClass().getSimpleName();
+        if (failure instanceof org.springframework.dao.DataAccessException) return "PERSISTENCE";
+        return "APPLICATION";
     }
 
     private static String boundedMessage(RuntimeException failure) {
         if (failure instanceof HistoricalBackfillPartialFailure partial) failure = partial.failure();
         String message = failure.getMessage();
-        if (message == null || message.isBlank()) message = "Provider or persistence operation failed";
+        if (message == null || message.isBlank()) return "Provider or persistence operation failed";
+        message = message.replaceAll("(?i)(password|secret|token|api[-_ ]?key|authorization)\\s*[:=]\\s*[^ ,;]+", "$1=[REDACTED]")
+                .replaceAll("https?://\\S+", "[URL]").replaceAll("[\\r\\n\\t]", " ").trim();
         return message.length() <= 240 ? message : message.substring(0, 240);
     }
 }

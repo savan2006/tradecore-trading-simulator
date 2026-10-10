@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.tradecore.execution.OrderExecutionService;
+import com.tradecore.foundation.security.ApiRateLimiter;
 import com.tradecore.identity.RegistrationRequest;
 import com.tradecore.identity.RegistrationResponse;
 import com.tradecore.identity.UserRegistrationService;
@@ -34,6 +35,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.springframework.test.web.servlet.MockMvc;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
@@ -53,6 +55,7 @@ class AdminOperationsApiTest {
     @Autowired private OrderPlacementService placement;
     @MockitoSpyBean private MarketHoursPolicy marketHours;
     @MockitoSpyBean private MarketDataProvider provider;
+    @MockitoSpyBean private ApiRateLimiter rateLimiter;
     private String adminEmail;
     private String normalEmail;
     private UUID tcsId;
@@ -81,6 +84,59 @@ class AdminOperationsApiTest {
     }
 
     @Test
+    void securityHeadersCorsAndFailedLoginThrottleAreConfigured() throws Exception {
+        mvc.perform(get("/api/v1/admin/overview").header("Authorization", basic(adminEmail)))
+                .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header()
+                        .string("X-Content-Type-Options", "nosniff"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header()
+                        .string("X-Frame-Options", "DENY"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header()
+                        .string("Referrer-Policy", "strict-origin-when-cross-origin"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header().doesNotExist("Strict-Transport-Security"));
+        mvc.perform(get("/api/v1/admin/overview").secure(true).header("Authorization", basic(adminEmail)))
+                .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header()
+                        .string("Strict-Transport-Security", "max-age=31536000"));
+
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options("/api/v1/orders")
+                        .header("Origin", "http://localhost:3000")
+                        .header("Access-Control-Request-Method", "POST")
+                        .header("Access-Control-Request-Headers", "authorization,content-type,idempotency-key"))
+                .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header()
+                        .string("Access-Control-Allow-Origin", "http://localhost:3000"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header()
+                        .doesNotExist("Access-Control-Allow-Credentials"));
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options("/api/v1/orders")
+                        .header("Origin", "https://untrusted.example")
+                        .header("Access-Control-Request-Method", "POST"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header()
+                        .doesNotExist("Access-Control-Allow-Origin"));
+
+        doReturn(false).when(rateLimiter).allow("authentication-failure", "ip:192.0.2.55");
+        mvc.perform(get("/api/v1/admin/overview").header("Authorization", basic("missing@example.invalid"))
+                        .with((RequestPostProcessor) request -> { request.setRemoteAddr("192.0.2.55"); return request; }))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header()
+                        .string("Retry-After", "300"));
+    }
+
+    @Test
+    void errorAndActuatorResponsesHideImplementationDetails() throws Exception {
+        String missing = mvc.perform(get("/api/v1/no-such-endpoint").header("Authorization", basic(adminEmail)))
+                .andExpect(status().isNotFound()).andReturn().getResponse().getContentAsString();
+        assertThat(missing).doesNotContain("Exception", "com.tradecore", "stackTrace");
+        var health = mvc.perform(get("/actuator/health")).andReturn().getResponse();
+        assertThat(health.getStatus()).isIn(200, 503);
+        assertThat(new tools.jackson.databind.ObjectMapper().readTree(health.getContentAsString()).has("components")).isFalse();
+        assertThat(new tools.jackson.databind.ObjectMapper().readTree(health.getContentAsString()).has("details")).isFalse();
+        String info = mvc.perform(get("/actuator/info").header("Authorization", basic(adminEmail)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        assertThat(info).doesNotContain("password", "redis", "datasource", "jdbc:");
+    }
+
+    @Test
     void historicalBackfillIsAdminOnlyAndDoesNotChangeFinancialTables() throws Exception {
         String endpoint = "/api/v1/admin/market-data/backfill";
         mvc.perform(post(endpoint).contentType("application/json").content("{\"months\":1,\"symbols\":[\"TCS\"]}"))
@@ -88,6 +144,9 @@ class AdminOperationsApiTest {
         mvc.perform(post(endpoint).header("Authorization", basic(normalEmail)).contentType("application/json")
                         .content("{\"months\":1,\"symbols\":[\"TCS\"]}"))
                 .andExpect(status().isForbidden());
+        mvc.perform(post(endpoint).header("Authorization", basic(adminEmail)).contentType("application/json")
+                        .content("{\"months\":1,\"symbols\":[\"" + "X".repeat(33) + "\"]}"))
+                .andExpect(status().isBadRequest());
 
         doReturn(java.util.List.of()).when(provider)
                 .getHistoricalCandles(org.mockito.ArgumentMatchers.eq("TCS"), org.mockito.ArgumentMatchers.eq(1),
@@ -109,6 +168,11 @@ class AdminOperationsApiTest {
             if ("QUEUED".equals(state) || "RUNNING".equals(state)) Thread.sleep(50);
         }
         assertThat(state).isEqualTo("COMPLETED");
+        assertThat(jdbc.queryForObject("select count(*) from audit_log where action=? and entity_id=? "
+                        + "and actor_user_id=(select id from app_user where email=?) and metadata like ?", Integer.class,
+                "ADMIN_HISTORICAL_BACKFILL_START", UUID.fromString(new tools.jackson.databind.ObjectMapper()
+                        .readTree(jobId).get("jobId").asText()), adminEmail, "%\"outcome\":\"SUCCESS\"%"))
+                .isEqualTo(1);
         assertThat(financialSnapshot()).isEqualTo(before);
     }
 
@@ -177,7 +241,9 @@ class AdminOperationsApiTest {
         mvc.perform(get("/api/v1/admin/market-status").header("Authorization", basic(adminEmail)))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.quoteRefreshEnabled").value(false))
                 .andExpect(jsonPath("$.latestPersistedQuoteAt").isNotEmpty())
-                .andExpect(jsonPath("$.orderExecutionEnabled").value(false));
+                .andExpect(jsonPath("$.orderExecutionEnabled").value(false))
+                .andExpect(jsonPath("$.jobs.length()").value(6))
+                .andExpect(jsonPath("$.jobs[0].outcome").value("NOT_RUN"));
         verifyNoInteractions(provider);
     }
 

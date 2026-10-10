@@ -3,6 +3,7 @@ package com.tradecore.order;
 import com.tradecore.account.TradingAccount;
 import com.tradecore.account.TradingAccountRepository;
 import com.tradecore.audit.AuditService;
+import com.tradecore.notification.OrderNotificationEvent;
 import com.tradecore.portfolio.Position;
 import com.tradecore.portfolio.PositionRepository;
 import java.math.BigDecimal;
@@ -11,6 +12,7 @@ import java.util.Locale;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -21,15 +23,17 @@ public class OrderCancellationService {
     private final PositionRepository positionRepository;
     private final OrderEventRepository eventRepository;
     private final AuditService auditService;
+    private final ApplicationEventPublisher events;
 
     public OrderCancellationService(TradingOrderRepository orderRepository,
             TradingAccountRepository accountRepository, PositionRepository positionRepository,
-            OrderEventRepository eventRepository, AuditService auditService) {
+            OrderEventRepository eventRepository, AuditService auditService, ApplicationEventPublisher events) {
         this.orderRepository = orderRepository;
         this.accountRepository = accountRepository;
         this.positionRepository = positionRepository;
         this.eventRepository = eventRepository;
         this.auditService = auditService;
+        this.events = events;
     }
 
     @Transactional
@@ -81,6 +85,11 @@ public class OrderCancellationService {
         order.cancel(now);
         eventRepository.saveAndFlush(new OrderEvent(order, "PENDING", "CANCELLED", "ORDER_CANCELLED",
                 "Order cancelled; unfilled resources released", now));
+        if (!systemIntradayOnly) {
+            events.publishEvent(new OrderNotificationEvent(ownerEmail, "ORDER_CANCELLED",
+                    "Order cancelled · " + order.getId().toString().substring(0, 8),
+                    "Your " + order.getInstrument().getSymbol() + " order was cancelled."));
+        }
         auditService.record(systemIntradayOnly ? null : ownerEmail,
                 systemIntradayOnly ? "INTRADAY_ORDER_CANCELLED_BY_SQUARE_OFF" : "ORDER_CANCELLED",
                 "ORDER", order.getId(), systemIntradayOnly ? "{\"source\":\"INTRADAY_SQUARE_OFF\"}" : null);

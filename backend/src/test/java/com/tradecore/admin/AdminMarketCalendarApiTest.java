@@ -103,6 +103,9 @@ class AdminMarketCalendarApiTest {
         assertThat(hours.isRegularSession(at("2027-01-01", "13:00"))).isFalse();
         mvc.perform(post(ENDPOINT + "/" + id + "/deactivate").header("Authorization", auth(admin.email())))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.active").value(false));
+        assertThat(auditCount("ADMIN_MARKET_CALENDAR_CREATE", id, "SUCCESS")).isEqualTo(1);
+        assertThat(auditCount("ADMIN_MARKET_CALENDAR_UPDATE", id, "SUCCESS")).isEqualTo(1);
+        assertThat(auditCount("ADMIN_MARKET_CALENDAR_DEACTIVATE", id, "SUCCESS")).isEqualTo(1);
         assertThat(hours.isRegularSession(at("2027-01-01", "14:00"))).isTrue();
         assertThat(financialSnapshot()).isEqualTo(before);
         verifyNoInteractions(provider);
@@ -161,6 +164,12 @@ class AdminMarketCalendarApiTest {
                 jdbc.query("select id,status from trading_order order by id", (rs, n) -> List.<Object>of(rs.getString(1), rs.getString(2))),
                 jdbc.query("select id,order_id,quantity,price from execution order by id",
                         (rs, n) -> List.<Object>of(rs.getString(1), rs.getString(2), rs.getLong(3), rs.getBigDecimal(4))));
+    }
+
+    private int auditCount(String action, UUID targetId, String outcome) {
+        return jdbc.queryForObject("select count(*) from audit_log where actor_user_id="
+                + "(select id from app_user where email=?) and action=? and entity_id=? and metadata like ?",
+                Integer.class, admin.email(), action, targetId, "%\"outcome\":\"" + outcome + "\"%");
     }
 
     private User register(String prefix) {

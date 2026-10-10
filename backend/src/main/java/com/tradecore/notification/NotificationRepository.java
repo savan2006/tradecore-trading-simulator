@@ -11,6 +11,7 @@ import org.springframework.data.repository.query.Param;
 
 public interface NotificationRepository extends JpaRepository<Notification, UUID> {
     long countByReadAtIsNull();
+    boolean existsByUser_IdAndNotificationTypeAndTitle(UUID userId, String notificationType, String title);
     Page<Notification> findByUser_EmailOrderByCreatedAtDescIdDesc(String email, Pageable pageable);
     Page<Notification> findByUser_EmailAndReadAtIsNullOrderByCreatedAtDescIdDesc(String email, Pageable pageable);
     long countByUser_EmailAndReadAtIsNull(String email);

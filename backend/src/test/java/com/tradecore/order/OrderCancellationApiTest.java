@@ -34,6 +34,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -127,6 +128,20 @@ class OrderCancellationApiTest {
         assertBalance(owner.id, "100000.0000", "0.0000");
         assertThat(count("select count(*) from order_event where order_id=? and event_type='ORDER_CANCELLED'", order)).isEqualTo(1);
         assertThat(count("select count(*) from execution where order_id=?", order)).isZero();
+        assertThat(count("select count(*) from notification where user_id=? and notification_type='ORDER_CANCELLED'", owner.id)).isEqualTo(1);
+    }
+
+    @Test
+    void orderEventsAreOldestFirstAndHiddenFromOtherUsers() throws Exception {
+        Account owner = account(), other = account(); UUID order = place(owner, "BUY", 1, "120");
+        cancel(owner, order).andExpect(status().isOk());
+
+        mvc.perform(get("/api/v1/orders/{id}/events", order).header("Authorization", basic(owner.email, PASSWORD)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$[0].type").value("ORDER_PLACED"))
+                .andExpect(jsonPath("$[1].type").value("ORDER_CANCELLED"))
+                .andExpect(jsonPath("$[0].occurredAt").exists());
+        mvc.perform(get("/api/v1/orders/{id}/events", order).header("Authorization", basic(other.email, PASSWORD)))
+                .andExpect(status().isNotFound());
     }
 
     @Test

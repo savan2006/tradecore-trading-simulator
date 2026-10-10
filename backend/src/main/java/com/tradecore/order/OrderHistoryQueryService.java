@@ -27,10 +27,13 @@ public class OrderHistoryQueryService {
             "PARTIALLY_FILLED", "FILLED", "CANCELLED", "REJECTED", "FAILED");
     private final TradingOrderRepository orderRepository;
     private final ExecutionRepository executionRepository;
+    private final OrderEventRepository eventRepository;
 
-    public OrderHistoryQueryService(TradingOrderRepository orderRepository, ExecutionRepository executionRepository) {
+    public OrderHistoryQueryService(TradingOrderRepository orderRepository, ExecutionRepository executionRepository,
+            OrderEventRepository eventRepository) {
         this.orderRepository = orderRepository;
         this.executionRepository = executionRepository;
+        this.eventRepository = eventRepository;
     }
 
     @Transactional(readOnly = true)
@@ -75,6 +78,14 @@ public class OrderHistoryQueryService {
         return orderRepository.findByIdAndAccount_User_Email(orderId, normalizeEmail(authenticatedEmail))
                 .map(OrderHistoryResponse::from)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Order was not found"));
+    }
+
+    @Transactional(readOnly = true)
+    public List<OrderEventResponse> events(String authenticatedEmail, UUID orderId) {
+        orderRepository.findByIdAndAccount_User_Email(orderId, normalizeEmail(authenticatedEmail))
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Order was not found"));
+        return eventRepository.findByOrder_IdOrderByOccurredAtAscIdAsc(orderId).stream()
+                .map(OrderEventResponse::from).toList();
     }
 
     @Transactional(readOnly = true)

@@ -17,6 +17,7 @@ import java.util.Optional;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ExecutionException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -114,6 +115,44 @@ class MarketQuoteWebSocketTest {
     }
 
     @Test
+    void rejectsDisallowedOriginsAndMessagesOverOneKilobyte() throws Exception {
+        Probe rejectedProbe = new Probe();
+        WebSocketHttpHeaders rejectedHeaders = new WebSocketHttpHeaders();
+        rejectedHeaders.setOrigin("https://untrusted.example");
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> new StandardWebSocketClient()
+                .execute(rejectedProbe, rejectedHeaders,
+                        URI.create("ws://localhost:" + port + "/ws/market-quotes")).get(10, TimeUnit.SECONDS))
+                .isInstanceOf(ExecutionException.class);
+
+        Probe probe = new Probe();
+        WebSocketSession session = connect(probe);
+        try {
+            session.sendMessage(new TextMessage("x".repeat(1025)));
+            JsonNode response = next(probe);
+            assertThat(response.path("type").asText()).isEqualTo("error");
+            assertThat(response.path("code").asText()).isEqualTo("MALFORMED_MESSAGE");
+        } finally {
+            session.close();
+        }
+    }
+
+    @Test
+    void limitsMessagesPerSession() throws Exception {
+        Probe probe = new Probe();
+        WebSocketSession session = connect(probe);
+        try {
+            for (int i = 0; i < 60; i++) {
+                session.sendMessage(new TextMessage("not-json"));
+                assertThat(next(probe).path("code").asText()).isEqualTo("MALFORMED_MESSAGE");
+            }
+            session.sendMessage(new TextMessage("not-json"));
+            assertThat(next(probe).path("code").asText()).isEqualTo("MESSAGE_RATE_LIMIT");
+        } finally {
+            session.close();
+        }
+    }
+
+    @Test
     void duplicateSubscriptionDoesNotRepeatInitialQuote() throws Exception {
         Probe probe = new Probe();
         WebSocketSession session = connect(probe);
@@ -192,7 +231,9 @@ class MarketQuoteWebSocketTest {
 
     private WebSocketSession connect(Probe probe) throws Exception {
         StandardWebSocketClient client = new StandardWebSocketClient();
-        return client.execute(probe, new WebSocketHttpHeaders(),
+        WebSocketHttpHeaders headers = new WebSocketHttpHeaders();
+        headers.setOrigin("http://localhost:3000");
+        return client.execute(probe, headers,
                 URI.create("ws://localhost:" + port + "/ws/market-quotes")).get(10, TimeUnit.SECONDS);
     }
 

@@ -6,6 +6,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import com.tradecore.admin.JobRunTracker;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -141,7 +142,9 @@ class MarketDataRefreshSchedulerTest {
     @Test
     void providerFailureDoesNotPreventTheNextScheduledRun() {
         MarketDataIngestionService ingestion = mock(MarketDataIngestionService.class);
-        MarketDataRefreshScheduler scheduler = scheduler(ingestion, new MarketDataRefreshProperties());
+        JobRunTracker tracker = new JobRunTracker();
+        MarketDataRefreshScheduler scheduler = new MarketDataRefreshScheduler(ingestion,
+                new MarketDataRefreshProperties(), new MarketHoursPolicy(new MarketDataRefreshProperties()), tracker);
         when(ingestion.ingestCurrentQuotes())
                 .thenThrow(new MarketDataProviderException(MarketDataProviderException.Category.TIMEOUT,
                         "controlled timeout"))
@@ -150,12 +153,16 @@ class MarketDataRefreshSchedulerTest {
         scheduler.runQuoteRefresh(at("2026-10-05T10:00:00"));
         assertThat(scheduler.getQuoteFailureCount()).isEqualTo(1);
         assertThat(scheduler.getLastSuccessfulQuoteRunAt()).isNull();
+        assertThat(tracker.snapshot().get(0).outcome()).isEqualTo("FAILURE");
+        assertThat(tracker.snapshot().get(0).failed()).isEqualTo(1);
 
         scheduler.runQuoteRefresh(at("2026-10-05T10:05:00"));
 
         verify(ingestion, times(2)).ingestCurrentQuotes();
         assertThat(scheduler.getLastSuccessfulQuoteRunAt()).isNotNull();
         assertThat(scheduler.getQuoteFailureCount()).isEqualTo(1);
+        assertThat(tracker.snapshot().get(0).outcome()).isEqualTo("SUCCESS");
+        assertThat(tracker.snapshot().get(0).processed()).isEqualTo(80);
     }
 
     @Test

@@ -41,6 +41,11 @@ public class OrderHistoryController {
         return queryService.order(authentication.getName(), orderId);
     }
 
+    @GetMapping("/{orderId}/events")
+    public java.util.List<OrderEventResponse> events(Authentication authentication, @PathVariable UUID orderId) {
+        return queryService.events(authentication.getName(), orderId);
+    }
+
     private static Instant parseDateBound(String value, boolean endOfDay) {
         if (value == null || value.isBlank()) return null;
         try {

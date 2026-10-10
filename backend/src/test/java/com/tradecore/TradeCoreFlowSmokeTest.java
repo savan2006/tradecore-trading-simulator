@@ -1,7 +1,9 @@
 package com.tradecore;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 import tools.jackson.databind.JsonNode;
@@ -11,6 +13,7 @@ import com.tradecore.execution.OrderExecutionService;
 import com.tradecore.identity.RegistrationRequest;
 import com.tradecore.identity.RegistrationResponse;
 import com.tradecore.market.MarketDataProvider;
+import com.tradecore.market.MarketHoursPolicy;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.sql.Timestamp;
@@ -52,6 +55,7 @@ class TradeCoreFlowSmokeTest {
     @Autowired private OrderExecutionService execution;
     @Autowired private PriceAlertService alerts;
     @MockitoSpyBean private MarketDataProvider provider;
+    @MockitoSpyBean private MarketHoursPolicy marketHours;
     private UUID instrumentId;
 
     @BeforeEach
@@ -62,6 +66,7 @@ class TradeCoreFlowSmokeTest {
         jdbc.update("insert into market_quote (id,instrument_id,last_price,market_at,provider_updated_at,received_at,market_status,data_status) "
                         + "values (?,?,?,?,?,?,'OPEN','LIVE')",
                 UUID.randomUUID(), instrumentId, new BigDecimal("100"), Timestamp.from(now), Timestamp.from(now), Timestamp.from(now));
+        doReturn(true).when(marketHours).isRegularSession(any(Instant.class));
         clearInvocations(provider);
     }
 

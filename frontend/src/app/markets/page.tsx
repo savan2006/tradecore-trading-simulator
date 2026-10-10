@@ -34,17 +34,17 @@ export default function MarketsPage() {
       <label>Sector<select value={sector} onChange={(event) => setSector(event.target.value)}><option value="">All sectors</option>{sectors.map((value) => <option key={value}>{value}</option>)}</select></label>
       <label>View<select value={sort} onChange={(event) => setSort(event.target.value)}>{sortOptions.map((value) => <option key={value} value={value}>{value.replaceAll("_", " ").toLowerCase()}</option>)}</select></label>
     </div><div className="section-summary"><span>Results are limited to the approved 80-company universe.</span><span className="market-stream-status"><StatusBadge status={stream.status.toUpperCase()} />Quote stream {stream.status}</span></div></section>
-    {loading ? <LoadingState label="Loading persisted market screen�" /> : error ? <ErrorState message={error.message} /> : !data?.rows.length ? <EmptyState message="No companies match this screen or no supported instruments are available." /> : <>
+    {loading ? <LoadingState label="Loading persisted market screen..." /> : error ? <ErrorState message={error.message} /> : !data?.rows.length ? <EmptyState message="No companies match this screen or no supported instruments are available." /> : <>
       {stream.message && <div className="notice notice-muted" role="status">{stream.message}</div>}
       <div className="table-scroll"><table><thead><tr><th>Company</th><th>LTP</th><th>Daily change</th><th>Volume</th><th>Volatility*</th><th>52-week range</th><th>Distance from high / low</th><th>Freshness</th></tr></thead><tbody>{data.rows.map((row) => {
         const live = stream.quotes[row.symbol];
         const ltp = live?.lastPrice ?? row.ltp;
         const status = live?.dataStatus ?? row.freshnessStatus;
-        return <tr key={row.symbol}><td><Link href={`/companies/${encodeURIComponent(row.symbol)}`}><strong>{row.symbol}</strong><br />{row.companyName}</Link><small>{row.sector ?? "Sector unavailable"} � {row.category ?? "Category unavailable"}</small></td>
+        return <tr key={row.symbol}><td><Link href={`/companies/${encodeURIComponent(row.symbol)}`}><strong>{row.symbol}</strong><br />{row.companyName}</Link><small>{row.sector ?? "Sector unavailable"} - {row.category ?? "Category unavailable"}</small></td>
           <td>{formatMoney(ltp)}</td><td>{row.dailyChangePercent == null ? "Unavailable" : `${row.dailyChangePercent.toFixed(2)}%`}</td>
           <td>{row.volume == null ? "Unavailable" : row.volume.toLocaleString("en-IN")}</td><td>{row.volatilityPercent == null ? "Insufficient candles" : `${row.volatilityPercent.toFixed(2)}%`}</td>
-          <td>{row.fiftyTwoWeekHigh == null || row.fiftyTwoWeekLow == null ? "Insufficient candles" : `${formatMoney(row.fiftyTwoWeekLow)} � ${formatMoney(row.fiftyTwoWeekHigh)}`}</td>
-          <td>{row.distanceFromFiftyTwoWeekHighPercent == null ? "�" : `${row.distanceFromFiftyTwoWeekHighPercent.toFixed(2)}%`} / {row.distanceFromFiftyTwoWeekLowPercent == null ? "�" : `${row.distanceFromFiftyTwoWeekLowPercent.toFixed(2)}%`}</td><td><StatusBadge status={status} /></td></tr>;
+          <td>{row.fiftyTwoWeekHigh == null || row.fiftyTwoWeekLow == null ? "Insufficient candles" : `${formatMoney(row.fiftyTwoWeekLow)} - ${formatMoney(row.fiftyTwoWeekHigh)}`}</td>
+          <td>{row.distanceFromFiftyTwoWeekHighPercent == null ? "..." : `${row.distanceFromFiftyTwoWeekHighPercent.toFixed(2)}%`} / {row.distanceFromFiftyTwoWeekLowPercent == null ? "..." : `${row.distanceFromFiftyTwoWeekLowPercent.toFixed(2)}%`}</td><td><StatusBadge status={status} /></td></tr>;
       })}</tbody></table></div><p className="muted">* Volatility is annualized sample standard deviation of available daily close-to-close returns. Historical metrics use persisted candles only; missing values remain unavailable.</p>
     </>}
   </div>;

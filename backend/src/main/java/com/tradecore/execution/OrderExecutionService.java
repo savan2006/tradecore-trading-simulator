@@ -8,6 +8,7 @@ import com.tradecore.ledger.LedgerEntryRepository;
 import com.tradecore.market.MarketHoursPolicy;
 import com.tradecore.market.MarketQuote;
 import com.tradecore.market.MarketQuoteRepository;
+import com.tradecore.notification.OrderNotificationEvent;
 import com.tradecore.order.OrderEventRepository;
 import com.tradecore.order.OrderEvent;
 import com.tradecore.order.TradingOrder;
@@ -15,6 +16,7 @@ import com.tradecore.order.TradingOrderRepository;
 import com.tradecore.portfolio.Position;
 import com.tradecore.portfolio.PositionRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -36,11 +38,13 @@ public class OrderExecutionService {
     private final OrderEventRepository eventRepository;
     private final MarketHoursPolicy marketHoursPolicy;
     private final AuditService auditService;
+    private final ApplicationEventPublisher events;
 
     public OrderExecutionService(TradingOrderRepository orderRepository, TradingAccountRepository accountRepository,
             PositionRepository positionRepository, MarketQuoteRepository quoteRepository,
             ExecutionRepository executionRepository, LedgerEntryRepository ledgerRepository,
-            OrderEventRepository eventRepository, MarketHoursPolicy marketHoursPolicy, AuditService auditService) {
+            OrderEventRepository eventRepository, MarketHoursPolicy marketHoursPolicy, AuditService auditService,
+            ApplicationEventPublisher events) {
         this.orderRepository = orderRepository;
         this.accountRepository = accountRepository;
         this.positionRepository = positionRepository;
@@ -50,6 +54,7 @@ public class OrderExecutionService {
         this.eventRepository = eventRepository;
         this.marketHoursPolicy = marketHoursPolicy;
         this.auditService = auditService;
+        this.events = events;
     }
 
     @Transactional
@@ -121,11 +126,18 @@ public class OrderExecutionService {
         order.fill(quantity, now);
         eventRepository.saveAndFlush(new OrderEvent(order, "PENDING", "FILLED", "ORDER_FILLED",
                 "Virtual order filled from persisted market quote", now));
+        String orderLabel = order.getId().toString().substring(0, 8);
+        events.publishEvent(new OrderNotificationEvent(order.getAccount().getUser().getEmail(), "ORDER_FILLED",
+                "Order filled · " + orderLabel, "Your " + order.getSide() + " " + quantity + " "
+                        + order.getInstrument().getSymbol() + " order was filled."));
         auditService.record(order.getAccount().getUser().getEmail(), "ORDER_EXECUTED", "ORDER", order.getId(),
                 "{\"symbol\":\"" + order.getInstrument().getSymbol() + "\",\"side\":\""
                         + order.getSide() + "\",\"mode\":\"" + order.getTradingMode()
                         + "\",\"quantity\":" + quantity + "}");
         if (squareOff) {
+            events.publishEvent(new OrderNotificationEvent(order.getAccount().getUser().getEmail(), "INTRADAY_SQUARE_OFF",
+                    "Intraday square-off · " + orderLabel, "Your intraday " + order.getInstrument().getSymbol()
+                            + " position was squared off."));
             auditService.record(order.getAccount().getUser().getEmail(), "INTRADAY_SQUARE_OFF", "POSITION",
                     position.getId(), "{\"orderId\":\"" + order.getId() + "\",\"symbol\":\""
                             + order.getInstrument().getSymbol() + "\",\"quantity\":" + quantity + "}");
