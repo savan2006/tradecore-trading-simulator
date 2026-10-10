@@ -5,7 +5,7 @@ ALTER TABLE market_session
 
 INSERT INTO market_session (id, trading_date, session_state, opens_at, closes_at,
                             square_off_at, holiday, description, active)
-SELECT seed.id, seed.trading_date, 'HOLIDAY', NULL, NULL, NULL, TRUE, seed.description, TRUE
+SELECT CAST(seed.id AS UUID), seed.trading_date, 'HOLIDAY', NULL, NULL, NULL, TRUE, seed.description, TRUE
 FROM (VALUES
     ('23000000-0000-4000-8000-000000000001', DATE '2026-01-15', 'Municipal Corporation Election - Maharashtra'),
     ('23000000-0000-4000-8000-000000000002', DATE '2026-01-26', 'Republic Day'),
