@@ -23,6 +23,8 @@ import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class WatchlistService {
+    private static final int MAX_WATCHLISTS_PER_USER = 20;
+    private static final int MAX_ITEMS_PER_WATCHLIST = 80;
     private final WatchlistRepository watchlists;
     private final WatchlistItemRepository items;
     private final UserRepository users;
@@ -37,7 +39,12 @@ public class WatchlistService {
 
     @Transactional
     public WatchlistResponse create(String email, WatchlistRequest request) {
-        User user = users.findByEmail(normalize(email)).orElseThrow(() -> notFound("User was not found"));
+        User user = users.findByEmailForWatchlistUpdate(normalize(email))
+                .orElseThrow(() -> notFound("User was not found"));
+        if (watchlists.countByUser_Id(user.getId()) >= MAX_WATCHLISTS_PER_USER) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "A user may have at most " + MAX_WATCHLISTS_PER_USER + " watchlists");
+        }
         Instant now = Instant.now();
         try {
             return response(watchlists.saveAndFlush(new Watchlist(user, request.name().trim(), now)), List.of());
@@ -90,6 +97,10 @@ public class WatchlistService {
                 .orElseThrow(() -> notFound("Supported instrument was not found"));
         if (items.findByWatchlist_IdAndInstrument_Id(id, instrument.getId()).isPresent()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Instrument is already in this watchlist");
+        }
+        if (items.countByWatchlist_Id(id) >= MAX_ITEMS_PER_WATCHLIST) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "A watchlist may contain at most " + MAX_ITEMS_PER_WATCHLIST + " instruments");
         }
         items.saveAndFlush(new WatchlistItem(watchlist, instrument, items.countByWatchlist_Id(id), Instant.now()));
         return response(watchlist, items.findAllByWatchlist_IdOrderBySortOrderAscCreatedAtAsc(id));

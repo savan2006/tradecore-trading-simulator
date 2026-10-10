@@ -4,7 +4,9 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import io.swagger.v3.oas.annotations.media.Schema;
 
+@Schema(description = "A virtual account balance, position summary, and quote-based valuation. Redis is not the financial source of truth.")
 public record PortfolioResponse(
         UUID accountId,
         String currency,

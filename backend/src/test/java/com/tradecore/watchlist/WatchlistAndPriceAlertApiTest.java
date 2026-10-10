@@ -26,6 +26,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -99,6 +100,18 @@ class WatchlistAndPriceAlertApiTest {
         mvc.perform(delete("/api/v1/watchlists/{id}", list).header("Authorization", basic(ownerEmail)))
                 .andExpect(status().isNoContent());
         verifyNoInteractions(provider);
+    }
+
+    @Test
+    void limitsEachUserToTwentyWatchlists() {
+        for (int index = 0; index < 20; index++) {
+            watchlists.create(ownerEmail, new WatchlistRequest("Bounded " + index));
+        }
+
+        assertThatThrownBy(() -> watchlists.create(ownerEmail, new WatchlistRequest("One too many")))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+                .hasMessageContaining("at most 20 watchlists");
+        assertThat(watchlists.list(ownerEmail)).hasSize(20);
     }
 
     @Test

@@ -2,7 +2,9 @@ package com.tradecore.order;
 
 import java.math.BigDecimal;
 import java.util.List;
+import io.swagger.v3.oas.annotations.media.Schema;
 
+@Schema(description = "Read-only order checks and simulated estimates. Preview does not place or execute an order.")
 public record OrderPreviewResponse(
         boolean valid,
         List<String> validationErrors,

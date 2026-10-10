@@ -1,5 +1,10 @@
 package com.tradecore.admin;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
+
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -12,6 +17,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+@Tag(name = "Admin")
+@SecurityRequirement(name = "basicAuth")
 @RestController
 @RequestMapping("/api/v1/admin")
 public class AdminController {
@@ -29,11 +36,15 @@ public class AdminController {
         this.reconciliation = reconciliation;
     }
 
+    @Operation(summary = "Overview", responses = {@ApiResponse(responseCode = "200", description = "Successful response"), @ApiResponse(responseCode = "401", description = "Authentication is required"), @ApiResponse(responseCode = "403", description = "Administrator access is required")})
+
     @GetMapping("/overview")
     AdminOverviewResponse overview(Authentication authentication) {
         recordAccess(authentication, "ADMIN_ACCESS_OVERVIEW", "/api/v1/admin/overview");
         return service.overview();
     }
+
+    @Operation(summary = "Users", responses = {@ApiResponse(responseCode = "200", description = "Successful response"), @ApiResponse(responseCode = "401", description = "Authentication is required"), @ApiResponse(responseCode = "403", description = "Administrator access is required")})
 
     @GetMapping("/users")
     AdminUserPageResponse users(@RequestParam(required = false) String search,
@@ -42,6 +53,8 @@ public class AdminController {
         recordAccess(authentication, "ADMIN_ACCESS_USERS", "/api/v1/admin/users");
         return service.users(search, page, size);
     }
+
+    @Operation(summary = "Orders", responses = {@ApiResponse(responseCode = "200", description = "Successful response"), @ApiResponse(responseCode = "401", description = "Authentication is required"), @ApiResponse(responseCode = "403", description = "Administrator access is required")})
 
     @GetMapping("/orders")
     AdminOrderPageResponse orders(@RequestParam(required = false) String status,
@@ -56,6 +69,8 @@ public class AdminController {
                 parseDateBound(to, true), page, size);
     }
 
+    @Operation(summary = "Market Status", responses = {@ApiResponse(responseCode = "200", description = "Successful response"), @ApiResponse(responseCode = "401", description = "Authentication is required"), @ApiResponse(responseCode = "403", description = "Administrator access is required")})
+
     @GetMapping("/market-status")
     AdminMarketStatusResponse marketStatus(Authentication authentication) {
         recordAccess(authentication, "ADMIN_ACCESS_MARKET_STATUS", "/api/v1/admin/market-status");
@@ -63,10 +78,13 @@ public class AdminController {
     }
 
     /** H2 tests do not prove PostgreSQL row-lock behavior; run this check against the real database after live testing. */
+    @Operation(summary = "Reconciliation", responses = {@ApiResponse(responseCode = "200", description = "Successful response"), @ApiResponse(responseCode = "401", description = "Authentication is required"), @ApiResponse(responseCode = "403", description = "Administrator access is required")})
     @GetMapping("/reconciliation")
     java.util.List<ReconciliationService.Check> reconciliation() {
         return reconciliation.reconcile();
     }
+
+    @Operation(summary = "Audit Logs", responses = {@ApiResponse(responseCode = "200", description = "Successful response"), @ApiResponse(responseCode = "401", description = "Authentication is required"), @ApiResponse(responseCode = "403", description = "Administrator access is required")})
 
     @GetMapping("/audit-logs")
     AdminAuditLogPageResponse auditLogs(@RequestParam(required = false) String action,

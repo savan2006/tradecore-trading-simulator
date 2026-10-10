@@ -1,5 +1,26 @@
 export type ApiError = Error & { status?: number };
 
+export function marketQuoteWebSocketUrl() {
+  const configuredUrl = process.env.NEXT_PUBLIC_WEBSOCKET_URL;
+  const base = process.env.NEXT_PUBLIC_API_BASE_URL || `${window.location.protocol}//${window.location.hostname}:8080`;
+  const url = configuredUrl ? new URL(configuredUrl) : new URL("/ws/market-quotes", base);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  if (window.location.protocol === "https:") url.protocol = "wss:";
+  return url.toString();
+}
+
+function notifyUnauthorized(status: number) {
+  if (status === 401 && typeof window !== "undefined") {
+    window.dispatchEvent(new Event("tradecore:session-expired"));
+  }
+}
+
+function fallbackForStatus(status: number, fallback: string) {
+  if (status === 401) return "Your session has expired. Please sign in again.";
+  if (status === 403) return "You are not allowed to perform this action.";
+  return fallback;
+}
+
 export type Instrument = {
   symbol: string;
   companyName: string;
@@ -459,10 +480,9 @@ async function request<T>(path: string, basicCredential: string, signal?: AbortS
   });
   if (!response.ok) {
     const payload = await response.json().catch(() => null) as { detail?: string; message?: string; title?: string; error?: string } | null;
-    const fallback = response.status === 401
-      ? "Your session is not authorized. Please sign in again."
-      : payload?.error ? `${payload.error} (HTTP ${response.status})` : `Request failed (${response.status}).`;
-    const error = new Error(payload?.detail ?? payload?.message ?? payload?.title ?? fallback) as ApiError;
+    notifyUnauthorized(response.status);
+    const fallback = fallbackForStatus(response.status, payload?.error ? `${payload.error} (HTTP ${response.status})` : `Request failed (${response.status}).`);
+    const error = new Error(response.status === 403 ? fallback : payload?.detail ?? payload?.message ?? payload?.title ?? fallback) as ApiError;
     error.status = response.status;
     throw error;
   }
@@ -477,10 +497,9 @@ async function mutate<T>(path: string, basicCredential: string): Promise<T> {
   });
   if (!response.ok) {
     const payload = await response.json().catch(() => null) as { detail?: string; message?: string; title?: string; error?: string } | null;
-    const fallback = response.status === 401
-      ? "Your session is not authorized. Please sign in again."
-      : payload?.error ? `${payload.error} (HTTP ${response.status})` : `Request failed (${response.status}).`;
-    const error = new Error(payload?.detail ?? payload?.message ?? payload?.title ?? fallback) as ApiError;
+    notifyUnauthorized(response.status);
+    const fallback = fallbackForStatus(response.status, payload?.error ? `${payload.error} (HTTP ${response.status})` : `Request failed (${response.status}).`);
+    const error = new Error(response.status === 403 ? fallback : payload?.detail ?? payload?.message ?? payload?.title ?? fallback) as ApiError;
     error.status = response.status;
     throw error;
   }
@@ -500,10 +519,9 @@ async function write<T>(method: "POST" | "PUT" | "DELETE", path: string, basicCr
   });
   if (!response.ok) {
     const payload = await response.json().catch(() => null) as { detail?: string; message?: string; title?: string; error?: string } | null;
-    const fallback = response.status === 401
-      ? "Your session is not authorized. Please sign in again."
-      : payload?.error ? `${payload.error} (HTTP ${response.status})` : `Request failed (${response.status}).`;
-    const error = new Error(payload?.detail ?? payload?.message ?? payload?.title ?? fallback) as ApiError;
+    notifyUnauthorized(response.status);
+    const fallback = fallbackForStatus(response.status, payload?.error ? `${payload.error} (HTTP ${response.status})` : `Request failed (${response.status}).`);
+    const error = new Error(response.status === 403 ? fallback : payload?.detail ?? payload?.message ?? payload?.title ?? fallback) as ApiError;
     error.status = response.status;
     throw error;
   }
@@ -522,14 +540,17 @@ async function registerRequest(body: { displayName: string; email: string; passw
     const payload = await response.json().catch(() => null) as {
       detail?: string; message?: string; title?: string; error?: string;
     } | null;
+    notifyUnauthorized(response.status);
     const fallback = response.status === 409
       ? "An account with this email is already registered."
       : response.status === 400
         ? "The server rejected these details. Check your display name, email, and password requirements."
-        : response.status === 401
-          ? "The registration request was not authorized. Please try again."
+          : response.status === 401
+            ? "Your session has expired. Please sign in again."
+            : response.status === 403
+              ? "You are not allowed to create an account."
           : `Registration failed (${response.status}).`;
-    const error = new Error(payload?.detail ?? payload?.message ?? payload?.title ?? payload?.error ?? fallback) as ApiError;
+    const error = new Error(response.status === 403 ? fallback : payload?.detail ?? payload?.message ?? payload?.title ?? payload?.error ?? fallback) as ApiError;
     error.status = response.status;
     throw error;
   }
@@ -549,12 +570,17 @@ async function placeOrderRequest(basicCredential: string, body: PlaceOrderReques
   });
   if (!response.ok) {
     const payload = await response.json().catch(() => null) as { detail?: string; message?: string; title?: string; error?: string } | null;
+    notifyUnauthorized(response.status);
     const fallback = response.status === 400
       ? "Order rejected as invalid. Check side, order type, trading mode, positive whole-number quantity, and required order prices."
+      : response.status === 401
+        ? "Your session has expired. Please sign in again."
+        : response.status === 403
+          ? "You are not allowed to place this order."
       : payload?.error
         ? `${payload.error} (HTTP ${response.status})`
         : `Order request failed (${response.status}).`;
-    const error = new Error(payload?.detail ?? payload?.message ?? payload?.title ?? fallback) as ApiError;
+    const error = new Error(response.status === 403 ? fallback : payload?.detail ?? payload?.message ?? payload?.title ?? fallback) as ApiError;
     error.status = response.status;
     throw error;
   }

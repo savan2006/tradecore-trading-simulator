@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.doAnswer;
 
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -18,6 +19,7 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.CountDownLatch;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -25,6 +27,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.web.socket.TextMessage;
+import org.springframework.web.socket.WebSocketMessage;
 import org.springframework.web.socket.WebSocketHttpHeaders;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.client.standard.StandardWebSocketClient;
@@ -227,6 +230,44 @@ class MarketQuoteWebSocketTest {
         Instrument instrument = instrumentRepository.findByExchangeAndSymbol("NSE", "TCS").orElseThrow();
         handler.publish(MarketQuoteResponse.unavailable(instrument));
         verifyNoInteractions(provider);
+    }
+
+    @Test
+    void slowSubscriberDoesNotBlockQuotePublication() throws Exception {
+        WebSocketSession slowSession = org.mockito.Mockito.mock(WebSocketSession.class);
+        when(slowSession.getId()).thenReturn("slow-client");
+        when(slowSession.isOpen()).thenReturn(true);
+        CountDownLatch sendStarted = new CountDownLatch(1);
+        CountDownLatch allowSendToFinish = new CountDownLatch(1);
+        doAnswer(invocation -> {
+            sendStarted.countDown();
+            allowSendToFinish.await(3, TimeUnit.SECONDS);
+            return null;
+        }).when(slowSession).sendMessage(any(WebSocketMessage.class));
+
+        handler.afterConnectionEstablished(slowSession);
+        var clientsField = MarketQuoteWebSocketHandler.class.getDeclaredField("clients");
+        clientsField.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        var clients = (java.util.Map<String, Object>) clientsField.get(handler);
+        Object client = clients.get("slow-client");
+        var subscriptionsField = client.getClass().getDeclaredField("subscriptions");
+        subscriptionsField.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        var subscriptions = (java.util.Set<String>) subscriptionsField.get(client);
+        subscriptions.add("TCS");
+
+        Instrument tcs = instrumentRepository.findByExchangeAndSymbol("NSE", "TCS").orElseThrow();
+        long startedAt = System.nanoTime();
+        handler.publish(MarketQuoteResponse.unavailable(tcs));
+        long elapsed = System.nanoTime() - startedAt;
+        try {
+            assertThat(elapsed).isLessThan(Duration.ofMillis(250).toNanos());
+            assertThat(sendStarted.await(2, TimeUnit.SECONDS)).isTrue();
+        } finally {
+            allowSendToFinish.countDown();
+            handler.afterConnectionClosed(slowSession, org.springframework.web.socket.CloseStatus.NORMAL);
+        }
     }
 
     private WebSocketSession connect(Probe probe) throws Exception {

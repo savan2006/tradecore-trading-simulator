@@ -3,7 +3,9 @@ package com.tradecore.strategylab;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import io.swagger.v3.oas.annotations.media.Schema;
 
+@Schema(description = "Results of a historical educational simulation. These are not live or broker executions.")
 public record BacktestResponse(
         BacktestStrategy strategy,
         String symbol,

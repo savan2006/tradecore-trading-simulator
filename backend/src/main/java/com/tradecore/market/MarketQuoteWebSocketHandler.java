@@ -10,6 +10,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.time.Duration;
+import java.util.ArrayDeque;
+import java.util.Queue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -19,6 +21,10 @@ import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.ConcurrentWebSocketSessionDecorator;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
+import jakarta.annotation.PreDestroy;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 /** In-process stream of provider-neutral quotes already persisted by the market-data flow. */
 @Component
@@ -27,16 +33,24 @@ public class MarketQuoteWebSocketHandler extends TextWebSocketHandler {
     private static final Logger log = LoggerFactory.getLogger(MarketQuoteWebSocketHandler.class);
     private static final String EXCHANGE = "NSE";
     private static final int MAX_SUBSCRIPTIONS = 100;
+    private static final int MAX_CONNECTED_CLIENTS = 256;
     private static final int MAX_MESSAGE_BYTES = 1024;
     private static final int MAX_MESSAGES_PER_WINDOW = 60;
     private static final long MESSAGE_WINDOW_NANOS = Duration.ofMinutes(1).toNanos();
     private static final int SEND_TIME_LIMIT_MILLIS = 5_000;
     private static final int SEND_BUFFER_LIMIT_BYTES = 64 * 1024;
+    private static final int MAX_PENDING_QUOTES_PER_CLIENT = 16;
 
     private final InstrumentRepository instruments;
     private final MarketDataQueryService marketData;
     private final ObjectMapper objectMapper;
     private final Map<String, ClientState> clients = new ConcurrentHashMap<>();
+    private final ThreadPoolExecutor quoteSenders = new ThreadPoolExecutor(
+            2, 8, 30, TimeUnit.SECONDS, new ArrayBlockingQueue<>(512), task -> {
+                Thread thread = new Thread(task, "tradecore-market-ws-send");
+                thread.setDaemon(true);
+                return thread;
+            }, new ThreadPoolExecutor.AbortPolicy());
 
     public MarketQuoteWebSocketHandler(InstrumentRepository instruments,
             MarketDataQueryService marketData, ObjectMapper objectMapper) {
@@ -49,7 +63,18 @@ public class MarketQuoteWebSocketHandler extends TextWebSocketHandler {
     public void afterConnectionEstablished(WebSocketSession session) {
         WebSocketSession boundedSession = new ConcurrentWebSocketSessionDecorator(
                 session, SEND_TIME_LIMIT_MILLIS, SEND_BUFFER_LIMIT_BYTES);
-        clients.put(session.getId(), new ClientState(boundedSession));
+        synchronized (clients) {
+            if (clients.size() >= MAX_CONNECTED_CLIENTS) {
+                try {
+                    boundedSession.close(CloseStatus.SESSION_NOT_RELIABLE);
+                } catch (IOException failure) {
+                    log.debug("Unable to reject excess market quote WebSocket session {} category={}",
+                            session.getId(), failure.getClass().getSimpleName());
+                }
+                return;
+            }
+            clients.put(session.getId(), new ClientState(boundedSession));
+        }
     }
 
     @Override
@@ -141,14 +166,62 @@ public class MarketQuoteWebSocketHandler extends TextWebSocketHandler {
     /** Called only after the quote transaction commits. */
     public void publish(MarketQuoteResponse quote) {
         for (ClientState client : clients.values()) {
+            boolean schedule = false;
+            boolean close = false;
             synchronized (client) {
                 if (!client.session.isOpen()) {
-                    remove(client);
+                    clients.remove(client.session.getId(), client);
                 } else if (client.subscriptions.contains(quote.symbol())) {
-                    sendQuote(client, quote);
+                    if (client.pendingQuotes.size() >= MAX_PENDING_QUOTES_PER_CLIENT) {
+                        clients.remove(client.session.getId(), client);
+                        close = true;
+                    } else {
+                        client.pendingQuotes.add(quote);
+                        if (!client.sendingQuotes) {
+                            client.sendingQuotes = true;
+                            schedule = true;
+                        }
+                    }
                 }
             }
+            if (close) {
+                dispatch(() -> remove(client), client);
+            } else if (schedule) {
+                dispatch(() -> drainQuotes(client), client);
+            }
         }
+    }
+
+    private void dispatch(Runnable task, ClientState client) {
+        try {
+            quoteSenders.execute(task);
+        } catch (java.util.concurrent.RejectedExecutionException saturated) {
+            clients.remove(client.session.getId(), client);
+            // Never close a socket from the quote-ingestion thread when the send pool is saturated.
+        }
+    }
+
+    private void drainQuotes(ClientState client) {
+        while (true) {
+            MarketQuoteResponse next;
+            synchronized (client) {
+                next = client.pendingQuotes.poll();
+                if (next == null) {
+                    client.sendingQuotes = false;
+                    return;
+                }
+            }
+            sendQuote(client, next);
+            if (!client.session.isOpen()) {
+                remove(client);
+                return;
+            }
+        }
+    }
+
+    @PreDestroy
+    void shutdownQuoteSenders() {
+        quoteSenders.shutdownNow();
     }
 
     @Override
@@ -206,6 +279,8 @@ public class MarketQuoteWebSocketHandler extends TextWebSocketHandler {
     private static final class ClientState {
         private final WebSocketSession session;
         private final Set<String> subscriptions = new HashSet<>();
+        private final Queue<MarketQuoteResponse> pendingQuotes = new ArrayDeque<>();
+        private boolean sendingQuotes;
         private long messageWindowStartedAt = System.nanoTime();
         private int messagesInWindow;
 

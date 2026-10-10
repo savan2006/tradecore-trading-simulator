@@ -149,13 +149,12 @@ function formatPercent(value: number) {
 }
 
 function dateDaysAgo(days: number) {
-  const date = new Date();
-  date.setDate(date.getDate() - days);
-  return date.toISOString().slice(0, 10);
+  const todayDate = today();
+  return new Date(Date.parse(`${todayDate}T00:00:00Z`) - days * 86_400_000).toISOString().slice(0, 10);
 }
 
 function today() {
-  return new Date().toISOString().slice(0, 10);
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
 }
 
 function messageOf(reason: unknown) {

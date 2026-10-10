@@ -416,6 +416,7 @@ td small { margin-top: 4px; }
 /* Keep dense data usable on narrow screens instead of letting page grids overflow. */
 main, .content-wrap, .panel, .metric-card, .dashboard-grid > *, .company-layout > * { min-width: 0; }
 input, select, textarea, button { max-width: 100%; }
+:focus-visible { outline: 3px solid #16715f; outline-offset: 2px; }
 .table-scroll { max-width: 100%; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; }
 .top-nav { min-width: 0; scrollbar-width: thin; }
 .section-summary { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }

@@ -48,9 +48,9 @@ export default function PortfolioPage() {
               <td>{position.reservedQuantity}</td>
               <td>{position.sellableQuantity}</td>
               <td>{formatMoney(position.averageCost, data.currency)}</td>
-              <td>{formatMoney(position.currentPrice, data.currency)}</td>
-              <td>{formatMoney(position.marketValue, data.currency)}</td>
-              <td>{formatMoney(position.unrealizedPnl, data.currency)}</td>
+              <td>{formatMoney(position.valuationStatus === "UNAVAILABLE" ? null : position.currentPrice, data.currency)}</td>
+              <td>{formatMoney(position.valuationStatus === "UNAVAILABLE" ? null : position.marketValue, data.currency)}</td>
+              <td>{formatMoney(position.valuationStatus === "UNAVAILABLE" ? null : position.unrealizedPnl, data.currency)}</td>
               <td>{formatMoney(position.realizedPnl, data.currency)}</td>
               <td><StatusBadge status={position.valuationStatus} /></td>
             </tr>)}</tbody>

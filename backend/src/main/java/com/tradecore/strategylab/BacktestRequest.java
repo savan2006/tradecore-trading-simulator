@@ -10,7 +10,9 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.Size;
+import io.swagger.v3.oas.annotations.media.Schema;
 
+@Schema(description = "Parameters for an educational historical simulation using persisted daily candles and simulated test capital.")
 public record BacktestRequest(
         @NotBlank @Size(max = 32) String symbol,
         @NotNull LocalDate fromDate,

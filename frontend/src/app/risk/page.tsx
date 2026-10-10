@@ -57,5 +57,5 @@ function formatConfiguredValue(limit: RiskLimit) {
 function formatDate(value: string | null) {
   if (!value) return "Not set";
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "Unavailable" : date.toLocaleString();
+  return Number.isNaN(date.getTime()) ? "Unavailable" : date.toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
 }

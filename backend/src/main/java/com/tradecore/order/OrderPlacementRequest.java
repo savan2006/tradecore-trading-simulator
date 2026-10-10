@@ -4,9 +4,11 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 import jakarta.validation.constraints.Digits;
+import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.math.BigDecimal;
 
+@Schema(description = "A simulated order request for a supported NSE instrument. Prices use decimal precision; no real broker or money is involved.")
 public record OrderPlacementRequest(
         @NotBlank @Size(max = 16) String exchange,
         @NotBlank @Size(max = 32) String symbol,

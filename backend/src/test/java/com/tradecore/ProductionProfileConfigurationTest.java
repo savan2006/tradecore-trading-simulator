@@ -35,6 +35,7 @@ class ProductionProfileConfigurationTest {
         assertThat(environment.getProperty("spring.datasource.hikari.maximum-pool-size")).isEqualTo("10");
         assertThat(environment.getProperty("spring.jpa.show-sql", Boolean.class)).isFalse();
         assertThat(environment.getProperty("tradecore.security.dev-user-enabled", Boolean.class)).isFalse();
+        assertThat(environment.getProperty("tradecore.docs.enabled", Boolean.class)).isFalse();
         assertThat(environment.getProperty("tradecore.cors.allowed-origins"))
                 .isEqualTo("https://tradecore.example.test");
         assertThat(environment.getProperty("management.endpoints.web.exposure.include"))

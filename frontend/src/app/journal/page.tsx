@@ -140,7 +140,7 @@ function Note({ title, text }: { title: string; text: string }) {
 
 function formatDate(value: string) {
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "Not available" : date.toLocaleString();
+  return Number.isNaN(date.getTime()) ? "Not available" : date.toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
 }
 
 function messageOf(error: unknown) {

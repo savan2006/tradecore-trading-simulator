@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, formatMoney, type ApiError, type LearningProfile, type PriceAlert, type Watchlist } from "@/lib/api";
+import { api, formatMoney, marketQuoteWebSocketUrl, type ApiError, type LearningProfile, type PriceAlert, type Watchlist } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { EmptyState, ErrorState, LoadingState, LoginRequired, PageHeading, StatusBadge } from "@/components/page-states";
 
@@ -179,7 +179,7 @@ export default function WatchlistsPage() {
           const quoteStatus = quote?.dataStatus ?? "UNAVAILABLE";
           return <tr key={item.id}>
             <td><Link className="text-link" href={`/companies/${encodeURIComponent(item.symbol)}`}>{item.symbol}</Link><small>{item.companyName} · {item.exchange}</small></td>
-            <td>{formatMoney(quote?.lastPrice)}</td>
+            <td>{formatMoney(quoteStatus === "UNAVAILABLE" ? null : quote?.lastPrice)}</td>
             <td>{formatFreshness(quote?.freshnessAgeSeconds)}</td>
             <td><StatusBadge status={quoteStatus} />{quoteStatus !== "LIVE" && <small>{quoteStatus === "STALE" ? "Persisted quote may be out of date" : "No usable quote available"}</small>}</td>
             <td><button className="danger-link" type="button" disabled={Boolean(pending)} onClick={() => void runAction(`remove-${list.id}-${item.symbol}`, `${item.symbol} removed from ${list.name}.`, () => api.removeWatchlistItem(session.basicCredential, list.id, item.symbol))}>{pending === `remove-${list.id}-${item.symbol}` ? "Removing…" : "Remove"}</button></td>
@@ -348,13 +348,6 @@ function isWatchlistQuote(value: unknown): value is WatchlistQuote {
     && ["LIVE", "STALE", "UNAVAILABLE"].includes(String(quote.dataStatus))
     && ["lastPrice", "open", "high", "low", "previousClose", "volume", "freshnessAgeSeconds"].every(nullableNumber)
     && ["marketTimestamp", "providerUpdatedTimestamp"].every(nullableString);
-}
-
-function marketQuoteWebSocketUrl() {
-  const base = process.env.NEXT_PUBLIC_API_BASE_URL || `${window.location.protocol}//${window.location.hostname}:8080`;
-  const url = new URL("/ws/market-quotes", base);
-  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  return url.toString();
 }
 
 function messageOf(error: unknown) {

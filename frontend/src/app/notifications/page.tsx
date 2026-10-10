@@ -142,7 +142,7 @@ function publishUnreadCount(count: number) {
 
 function formatDate(value: string) {
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
 }
 
 function messageOf(error: unknown) {

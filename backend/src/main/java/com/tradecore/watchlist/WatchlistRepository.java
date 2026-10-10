@@ -11,6 +11,8 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface WatchlistRepository extends JpaRepository<Watchlist, UUID> {
+    long countByUser_Id(UUID userId);
+
     @EntityGraph(attributePaths = "user")
     List<Watchlist> findAllByUser_EmailOrderByCreatedAtDescIdDesc(String email);
 

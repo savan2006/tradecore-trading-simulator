@@ -1,3 +1,5 @@
 tradecore:
+  docs:
+    enabled: false
   security:
     dev-user-enabled: ${TRADECORE_SECURITY_DEV_USER_ENABLED:false}

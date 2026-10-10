@@ -30,15 +30,15 @@ with one unpushed commit at audit time. Known defects: see `docs/PROJECT_CONTEXT
 | S2 | Production configuration, proxy-safe client IP, logging | M | DONE | 2026-10-10 | Added production settings, trusted-proxy IP handling, request IDs, and env validation. Backend tests: 256 (0 failures, 3 skipped); frontend typecheck/build pass. |  |
 | S3 | Real login session (httpOnly cookie, survives refresh) | M | DONE | 2026-10-10 | Added encrypted httpOnly login sessions, CSRF checks, refresh restoration, and registration success message. Frontend typecheck/build pass. |  |
 | F1 | Frontend bug fixes found in the code | S | DONE | 2026-10-10 | Fixed frontend styles and Markets text; added order idempotency headers and tightened order action loading guards. Frontend typecheck/build pass. |  |
-| F2 | Order timeline, fill notifications, market-session endpoint + badge | M | BLOCKED | 2026-10-10 | Implemented APIs, notifications, and UI; frontend typecheck/build pass. Backend tests blocked by sandbox Access Denied opening cached Maven JARs. |  |
-| F3 | Frontend final QA: states, mobile, accessibility basics | M | NOT_STARTED |  |  |  |
-| Q1 | OpenAPI / Swagger documentation | M | NOT_STARTED |  |  |  |
-| Q2 | Performance review + controlled performance tests | M | NOT_STARTED |  |  |  |
-| Q3 | Repeatable live smoke-test script (PowerShell) | S | NOT_STARTED |  |  |  |
-| Q4 | CI pipeline (GitHub Actions) | S | NOT_STARTED |  |  |  |
-| Q5 | Deployment readiness (no Docker) | M | NOT_STARTED |  |  |  |
-| Q6 | Final cleanup, README, architecture docs, data-cleanup script | M | NOT_STARTED |  |  |  |
-| Q7 | FINAL RELEASE AUDIT (the 'is it really done?' gate) | M | NOT_STARTED |  |  |  |
+| F2 | Order timeline, fill notifications, market-session endpoint + badge | M | DONE | 2026-10-10 | Added owner-checked order events/timeline, after-commit notifications, and MarketHoursPolicy session API/badges. Backend tests: 259 (0 failures, 3 skipped); frontend typecheck/build pass. |  |
+| F3 | Frontend final QA: states, mobile, accessibility basics | M | DONE | 2026-10-10 | Added consistent 401/403 handling, IST display, unavailable quote suppression, focus outlines, and current-page navigation; reviewed listed page states and mobile layouts. Frontend tests: n/a; typecheck/build pass. |  |
+| Q1 | OpenAPI / Swagger documentation | M | DONE | 2026-10-10 | Added authenticated OpenAPI docs, endpoint responses and DTO schemas; backend tests: 260 (0 failures, 3 skipped). |  |
+| Q2 | Performance review + controlled performance tests | M | DONE | 2026-10-10 | Bounded watchlists and asynchronous WebSocket delivery; perf checks confirm flat SQL counts and responsive analytics. Backend tests: 262 (0 failures, 3 skipped); perf tests: 1 passed. |  |
+| Q3 | Repeatable live smoke-test script (PowerShell) | S | DONE | 2026-10-10 | Added a credential-safe live smoke script with guarded simulated trading and optional admin checks; PowerShell parser passed (runtime not run per task). Tests: n/a. |  |
+| Q4 | CI pipeline (GitHub Actions) | S | DONE | 2026-10-10 | Added backend verification across UTC and Asia/Kolkata plus frontend CI install, type-check, and build jobs. Backend: 262 tests per timezone (0 failures, 3 skipped); frontend checks pass. |  |
+| Q5 | Deployment readiness (no Docker) | M | DONE | 2026-10-10 | Added deployment guide, PORT support, and configurable secure WebSocket URL; backend tests: 263 (0 failures, 3 skipped), frontend typecheck/build pass. |  |
+| Q6 | Final cleanup, README, architecture docs, data-cleanup script | M | DONE | 2026-10-10 | Rewrote README, added architecture diagrams and rollback-safe synthetic cleanup SQL, consolidated the WebSocket helper, and tightened ignores. Backend: 263 tests (0 failures, 3 skipped); frontend typecheck/build pass. |  |
+| Q7 | FINAL RELEASE AUDIT (the 'is it really done?' gate) | M | DONE | 2026-10-10 | Completed release audit: no P0/P1 code blockers; backend 263 tests (0 failures, 3 skipped), performance test passed, frontend typecheck/build pass. Live deployment checks remain unverified. |  |
 | U4 | OPTIONAL: move backend to Java 25 LTS (OPTIONAL) | S | NOT_STARTED |  |  |  |
 | Q5b | OPTIONAL: Dockerfile (only if your host requires Docker) (OPTIONAL) | S | NOT_STARTED |  |  |  |
 

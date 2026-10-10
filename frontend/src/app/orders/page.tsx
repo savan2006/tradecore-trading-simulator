@@ -217,7 +217,7 @@ function Detail({ label, value }: { label: string; value: string }) {
 }
 
 function formatDate(value: string) {
-  return new Date(value).toLocaleString();
+  return new Date(value).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
 }
 
 function messageOf(error: unknown) {

@@ -10,6 +10,7 @@
 **/target/
 **/.maven-home/
 *.class
+*.tsbuildinfo
 
 # Node / Next.js
 **/node_modules/
@@ -21,10 +22,6 @@ yarn-debug.log*
 pnpm-debug.log*
 
 # IDE and operating system
-.idea/workspace.xml
-.idea/httpRequests/
-.idea/dataSources/
-.idea/dataSources.local.xml
-.idea/inspectionProfiles/
+.idea/
 .DS_Store
 Thumbs.db

@@ -31,6 +31,15 @@ export function AppShell({ children }: Readonly<{ children: React.ReactNode }>) 
   const [marketSession, setMarketSession] = useState<MarketSession | null>(null);
 
   useEffect(() => {
+    const handleExpiredSession = () => {
+      void signOut();
+      router.replace("/login");
+    };
+    window.addEventListener("tradecore:session-expired", handleExpiredSession);
+    return () => window.removeEventListener("tradecore:session-expired", handleExpiredSession);
+  }, [router, signOut]);
+
+  useEffect(() => {
     if (!session) {
       setUnreadCount(null);
       return;
@@ -70,13 +79,13 @@ export function AppShell({ children }: Readonly<{ children: React.ReactNode }>) 
         <Link className="wordmark" href="/" aria-label="TradeCore dashboard">TradeCore<span className="brand-dot">.</span></Link>
         <nav className="top-nav" aria-label="Main navigation">
           {links.map(([label, href]) => (
-            <Link key={href} href={href} className={pathname === href ? "nav-link active" : "nav-link"}>
+            <Link key={href} href={href} aria-current={pathname === href || href === "/markets" && pathname.startsWith("/companies/") ? "page" : undefined} className={pathname === href || href === "/markets" && pathname.startsWith("/companies/") ? "nav-link active" : "nav-link"}>
               {label}{href === "/notifications" && unreadCount != null && unreadCount > 0 && <span className="nav-unread-count" aria-label={`${unreadCount} unread notifications`}>{unreadCount > 99 ? "99+" : unreadCount}</span>}
             </Link>
           ))}
-          {session && adminAccess === "allowed" && <Link href="/admin" className={pathname === "/admin" ? "nav-link active" : "nav-link"}>Admin</Link>}
-          {session && adminAccess === "allowed" && <Link href="/admin/risk-limits" className={pathname === "/admin/risk-limits" ? "nav-link active" : "nav-link"}>Risk limits</Link>}
-          {session && adminAccess === "allowed" && <Link href="/admin/audit-logs" className={pathname === "/admin/audit-logs" ? "nav-link active" : "nav-link"}>Audit logs</Link>}
+          {session && adminAccess === "allowed" && <Link href="/admin" aria-current={pathname === "/admin" ? "page" : undefined} className={pathname === "/admin" ? "nav-link active" : "nav-link"}>Admin</Link>}
+          {session && adminAccess === "allowed" && <Link href="/admin/risk-limits" aria-current={pathname === "/admin/risk-limits" ? "page" : undefined} className={pathname === "/admin/risk-limits" ? "nav-link active" : "nav-link"}>Risk limits</Link>}
+          {session && adminAccess === "allowed" && <Link href="/admin/audit-logs" aria-current={pathname === "/admin/audit-logs" ? "page" : undefined} className={pathname === "/admin/audit-logs" ? "nav-link active" : "nav-link"}>Audit logs</Link>}
         </nav>
         <div className="session-tools">
           {session && marketSession && <span className={`market-session-badge ${marketSession.status === "OPEN" ? "is-open" : "is-closed"}`} title={marketSession.reason ?? undefined}>

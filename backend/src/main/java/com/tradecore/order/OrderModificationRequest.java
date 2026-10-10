@@ -3,10 +3,12 @@ package com.tradecore.order;
 import com.fasterxml.jackson.annotation.JsonAnySetter;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Digits;
+import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.math.BigDecimal;
 
 /** Only the fields mutable for the order's existing type are accepted. */
+@Schema(description = "Allowed changes to an existing pending simulated order. Fields must match the order's current type.")
 public record OrderModificationRequest(
         @Positive Long quantity,
         @Digits(integer = 19, fraction = 6) BigDecimal limitPrice,

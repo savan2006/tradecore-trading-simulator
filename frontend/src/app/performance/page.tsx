@@ -20,7 +20,7 @@ export default function PerformancePage() {
 function PerformanceContent({ data }: { data: Performance }) {
   return <>
     <section className="metric-grid" aria-label="Performance summary">
-      <Metric label="Total P&L" value={data.totalPnl == null ? "Unavailable" : formatMoney(data.totalPnl)} note={data.totalPnl == null ? `Valuation ${data.valuationStatus.toLowerCase()}` : "Realized + current unrealized"} valueClass={data.totalPnl == null ? "" : data.totalPnl >= 0 ? "positive-value" : "negative-value"} />
+      <Metric label="Total P&L" value={data.totalPnl == null || data.valuationStatus === "UNAVAILABLE" ? "Unavailable" : formatMoney(data.totalPnl)} note={data.totalPnl == null || data.valuationStatus === "UNAVAILABLE" ? `Valuation ${data.valuationStatus.toLowerCase()}` : "Realized + current unrealized"} valueClass={data.totalPnl == null || data.valuationStatus === "UNAVAILABLE" ? "" : data.totalPnl >= 0 ? "positive-value" : "negative-value"} />
       <Metric label="Total orders" value={String(data.totalOrders)} note={`${data.filledOrders} filled · ${data.cancelledOrders} cancelled`} />
       <Metric label="Executions" value={String(data.totalExecutions)} note="Completed simulated fills" />
       <Metric label="Open positions" value={String(data.currentOpenPositions)} note="Across delivery and intraday" />
@@ -90,5 +90,5 @@ function PerformanceChart({ points }: { points: PerformancePoint[] }) {
 
 function formatDate(value: string) {
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "Date unavailable" : date.toLocaleDateString();
+  return Number.isNaN(date.getTime()) ? "Date unavailable" : date.toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" });
 }

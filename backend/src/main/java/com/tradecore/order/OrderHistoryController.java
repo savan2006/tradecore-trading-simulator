@@ -1,5 +1,10 @@
 package com.tradecore.order;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
+
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -15,6 +20,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
+@Tag(name = "Orders")
+@SecurityRequirement(name = "basicAuth")
 @RestController
 @RequestMapping("/api/v1/orders")
 public class OrderHistoryController {
@@ -22,6 +29,8 @@ public class OrderHistoryController {
     private final OrderHistoryQueryService queryService;
 
     public OrderHistoryController(OrderHistoryQueryService queryService) { this.queryService = queryService; }
+
+    @Operation(summary = "Orders", responses = {@ApiResponse(responseCode = "200", description = "Successful response"), @ApiResponse(responseCode = "401", description = "Authentication is required")})
 
     @GetMapping
     public OrderHistoryPageResponse orders(Authentication authentication,
@@ -36,10 +45,14 @@ public class OrderHistoryController {
                 parseDateBound(from, false), parseDateBound(to, true), page, size);
     }
 
+    @Operation(summary = "Order", responses = {@ApiResponse(responseCode = "200", description = "Successful response"), @ApiResponse(responseCode = "401", description = "Authentication is required"), @ApiResponse(responseCode = "404", description = "The requested resource was not found")})
+
     @GetMapping("/{orderId}")
     public OrderHistoryResponse order(Authentication authentication, @PathVariable UUID orderId) {
         return queryService.order(authentication.getName(), orderId);
     }
+
+    @Operation(summary = "Events", responses = {@ApiResponse(responseCode = "200", description = "Successful response"), @ApiResponse(responseCode = "401", description = "Authentication is required"), @ApiResponse(responseCode = "404", description = "The requested resource was not found")})
 
     @GetMapping("/{orderId}/events")
     public java.util.List<OrderEventResponse> events(Authentication authentication, @PathVariable UUID orderId) {

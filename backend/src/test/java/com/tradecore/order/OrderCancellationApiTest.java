@@ -128,7 +128,7 @@ class OrderCancellationApiTest {
         assertBalance(owner.id, "100000.0000", "0.0000");
         assertThat(count("select count(*) from order_event where order_id=? and event_type='ORDER_CANCELLED'", order)).isEqualTo(1);
         assertThat(count("select count(*) from execution where order_id=?", order)).isZero();
-        assertThat(count("select count(*) from notification where user_id=? and notification_type='ORDER_CANCELLED'", owner.id)).isEqualTo(1);
+        assertThat(count("select count(*) from notification n join app_user u on u.id=n.user_id where u.email=? and n.notification_type='ORDER_CANCELLED'", owner.email)).isEqualTo(1);
     }
 
     @Test

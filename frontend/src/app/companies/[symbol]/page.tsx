@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, formatMoney, type MarketSession, type OrderPreview, type PlaceOrderRequest, type Quote } from "@/lib/api";
+import { api, formatMoney, marketQuoteWebSocketUrl, type MarketSession, type OrderPreview, type PlaceOrderRequest, type Quote } from "@/lib/api";
 import { useApiQuery } from "@/lib/use-api-query";
 import { EmptyState, ErrorState, LoadingState, PageHeading, StatusBadge } from "@/components/page-states";
 import { useAuth } from "@/lib/auth-context";
@@ -20,22 +20,22 @@ export default function CompanyPage() {
   const { session } = useAuth();
   const stream = useMarketQuoteStream(data?.learningProfile.symbol ?? "");
 
-  if (loading) return <div className="content-wrap"><Link href="/markets" className="back-link">← Markets</Link><LoadingState label={`Loading ${symbol} overview…`} /></div>;
-  if (error || !data) return <div className="content-wrap"><Link href="/markets" className="back-link">← Markets</Link><ErrorState message={error?.message ?? "Company overview is unavailable."} /></div>;
+  if (loading) return <div className="content-wrap"><PageHeading eyebrow="Company research" title={symbol} /><Link href="/markets" className="back-link">← Markets</Link><LoadingState label={`Loading ${symbol} overview…`} /></div>;
+  if (error || !data) return <div className="content-wrap"><PageHeading eyebrow="Company research" title={symbol} /><Link href="/markets" className="back-link">← Markets</Link><ErrorState message={error?.message ?? "Company overview is unavailable."} /></div>;
 
   const profile = data.learningProfile;
   const quote = stream.quotes[symbol] ?? data.latestQuote as MarketQuote;
   const quoteStatus = quote?.dataStatus ?? data.quoteStatus;
   const stale = quoteStatus === "STALE";
   const unavailable = quoteStatus === "UNAVAILABLE";
-  const quoteChange = quote?.lastPrice != null && quote.previousClose != null
+  const quoteChange = unavailable ? null : quote?.lastPrice != null && quote.previousClose != null
     ? { absolute: quote.lastPrice - quote.previousClose, percent: quote.previousClose === 0 ? 0 : ((quote.lastPrice - quote.previousClose) / quote.previousClose) * 100 }
     : data.latestQuoteChange;
   return <div className="content-wrap company-page">
     <Link href="/markets" className="back-link">← Markets</Link>
     <section className="company-hero">
       <div><p className="eyebrow">{profile.exchange} · {profile.symbol} · {profile.sector}</p><h1>{profile.companyName}</h1><p className="company-subtitle">{profile.businessType}</p></div>
-      <div className="quote-summary"><StatusBadge status={quoteStatus} /><strong>{formatMoney(quote?.lastPrice)}</strong><span className="muted">Quote refreshes automatically · stream {stream.status}</span>{quoteChange && <span className={quoteChange.absolute >= 0 ? "positive-value" : "negative-value"}>{signed(quoteChange.absolute)} ({signed(quoteChange.percent)}%) vs previous close</span>}</div>
+      <div className="quote-summary"><StatusBadge status={quoteStatus} /><strong>{formatMoney(unavailable ? null : quote?.lastPrice)}</strong><span className="muted">Quote refreshes automatically · stream {stream.status}</span>{quoteChange && <span className={quoteChange.absolute >= 0 ? "positive-value" : "negative-value"}>{signed(quoteChange.absolute)} ({signed(quoteChange.percent)}%) vs previous close</span>}</div>
     </section>
 
     {stream.message && <div className="notice notice-muted" role="status">{stream.message}</div>}
@@ -56,7 +56,7 @@ export default function CompanyPage() {
           <LearningList title="What to observe" items={profile.educationalObservations} />
         </div>
       </div>
-      <aside className="panel quote-detail"><p className="eyebrow">Quote details</p><h2>Latest persisted quote</h2><div className="detail-row"><span>Last price</span><strong>{formatMoney(quote?.lastPrice)}</strong></div><div className="detail-row"><span>Open / High / Low</span><strong>{formatMoney(quote?.open)} / {formatMoney(quote?.high)} / {formatMoney(quote?.low)}</strong></div><div className="detail-row"><span>Previous close</span><strong>{formatMoney(quote?.previousClose)}</strong></div><div className="detail-row"><span>Volume</span><strong>{quote?.volume == null ? "Unavailable" : quote.volume.toLocaleString("en-IN")}</strong></div><div className="detail-row"><span>Data status</span><StatusBadge status={quoteStatus} /></div><div className="detail-row"><span>Market timestamp</span><strong>{formatDate(quote?.marketTimestamp ?? null)}</strong></div><div className="detail-row"><span>Provider update</span><strong>{formatDate(quote?.providerUpdatedTimestamp ?? null)}</strong></div><div className="detail-row"><span>Quote age</span><strong>{quote?.freshnessAgeSeconds == null ? "—" : `${Math.floor(quote.freshnessAgeSeconds / 60)} min`}</strong></div><p className="fine-print">Displayed prices are persisted backend data. Learning content is educational and is not a trading recommendation.</p></aside>
+      <aside className="panel quote-detail"><p className="eyebrow">Quote details</p><h2>Latest persisted quote</h2><div className="detail-row"><span>Last price</span><strong>{formatMoney(unavailable ? null : quote?.lastPrice)}</strong></div><div className="detail-row"><span>Open / High / Low</span><strong>{unavailable ? "Unavailable" : `${formatMoney(quote?.open)} / ${formatMoney(quote?.high)} / ${formatMoney(quote?.low)}`}</strong></div><div className="detail-row"><span>Previous close</span><strong>{formatMoney(quote?.previousClose)}</strong></div><div className="detail-row"><span>Volume</span><strong>{quote?.volume == null ? "Unavailable" : quote.volume.toLocaleString("en-IN")}</strong></div><div className="detail-row"><span>Data status</span><StatusBadge status={quoteStatus} /></div><div className="detail-row"><span>Market timestamp</span><strong>{formatDate(quote?.marketTimestamp ?? null)}</strong></div><div className="detail-row"><span>Provider update</span><strong>{formatDate(quote?.providerUpdatedTimestamp ?? null)}</strong></div><div className="detail-row"><span>Quote age</span><strong>{quote?.freshnessAgeSeconds == null ? "—" : `${Math.floor(quote.freshnessAgeSeconds / 60)} min`}</strong></div><p className="fine-print">Displayed prices are persisted backend data. Learning content is educational and is not a trading recommendation.</p></aside>
     </section>
   </div>;
 }
@@ -250,17 +250,10 @@ function isMarketQuote(value: unknown): value is MarketQuote {
     && ["marketTimestamp", "providerUpdatedTimestamp"].every(nullableString);
 }
 
-function marketQuoteWebSocketUrl() {
-  const base = process.env.NEXT_PUBLIC_API_BASE_URL || `${window.location.protocol}//${window.location.hostname}:8080`;
-  const url = new URL("/ws/market-quotes", base);
-  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  return url.toString();
-}
-
 function signed(value: number) {
   return `${value > 0 ? "+" : ""}${value.toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
 }
 
 function formatDate(value: string | null) {
-  return value ? new Date(value).toLocaleString() : "—";
+  return value ? new Date(value).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }) : "—";
 }

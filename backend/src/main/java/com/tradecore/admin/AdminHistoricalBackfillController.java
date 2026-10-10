@@ -1,5 +1,10 @@
 package com.tradecore.admin;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
+
 import com.tradecore.market.HistoricalBackfillRequest;
 import com.tradecore.market.HistoricalBackfillService;
 import com.tradecore.market.HistoricalBackfillStatus;
@@ -15,6 +20,8 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 /** Administrator-only job control; provider calls stay in the background ingestion service. */
+@Tag(name = "Admin")
+@SecurityRequirement(name = "basicAuth")
 @RestController
 @RequestMapping("/api/v1/admin/market-data/backfill")
 public class AdminHistoricalBackfillController {
@@ -25,6 +32,8 @@ public class AdminHistoricalBackfillController {
         this.backfill = backfill;
         this.audit = audit;
     }
+
+    @Operation(summary = "Start", responses = {@ApiResponse(responseCode = "202", description = "Accepted for processing"), @ApiResponse(responseCode = "400", description = "Invalid request or parameters"), @ApiResponse(responseCode = "401", description = "Authentication is required"), @ApiResponse(responseCode = "403", description = "Administrator access is required"), @ApiResponse(responseCode = "409", description = "The request conflicts with the current resource state")})
 
     @PostMapping
     @ResponseStatus(HttpStatus.ACCEPTED)
@@ -41,6 +50,8 @@ public class AdminHistoricalBackfillController {
             throw failure;
         }
     }
+
+    @Operation(summary = "Status", responses = {@ApiResponse(responseCode = "200", description = "Successful response"), @ApiResponse(responseCode = "401", description = "Authentication is required"), @ApiResponse(responseCode = "403", description = "Administrator access is required")})
 
     @GetMapping
     HistoricalBackfillStatus status(Authentication authentication) {

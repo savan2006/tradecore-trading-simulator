@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { api, formatMoney, type MarketScreenerRow, type Quote } from "@/lib/api";
+import { api, formatMoney, marketQuoteWebSocketUrl, type MarketScreenerRow, type Quote } from "@/lib/api";
 import { useApiQuery } from "@/lib/use-api-query";
 import { EmptyState, ErrorState, LoadingState, PageHeading, StatusBadge } from "@/components/page-states";
 
@@ -36,12 +36,12 @@ export default function MarketsPage() {
     </div><div className="section-summary"><span>Results are limited to the approved 80-company universe.</span><span className="market-stream-status"><StatusBadge status={stream.status.toUpperCase()} />Quote stream {stream.status}</span></div></section>
     {loading ? <LoadingState label="Loading persisted market screen..." /> : error ? <ErrorState message={error.message} /> : !data?.rows.length ? <EmptyState message="No companies match this screen or no supported instruments are available." /> : <>
       {stream.message && <div className="notice notice-muted" role="status">{stream.message}</div>}
-      <div className="table-scroll"><table><thead><tr><th>Company</th><th>LTP</th><th>Daily change</th><th>Volume</th><th>Volatility*</th><th>52-week range</th><th>Distance from high / low</th><th>Freshness</th></tr></thead><tbody>{data.rows.map((row) => {
+      <div className="table-scroll"><table><thead><tr><th>Company</th><th>LTP</th><th>Daily change</th><th>Volume</th><th>Volatility*</th><th>52-week range</th><th>Distance from high / low</th><th>Quote status</th></tr></thead><tbody>{data.rows.map((row) => {
         const live = stream.quotes[row.symbol];
         const ltp = live?.lastPrice ?? row.ltp;
         const status = live?.dataStatus ?? row.freshnessStatus;
         return <tr key={row.symbol}><td><Link href={`/companies/${encodeURIComponent(row.symbol)}`}><strong>{row.symbol}</strong><br />{row.companyName}</Link><small>{row.sector ?? "Sector unavailable"} - {row.category ?? "Category unavailable"}</small></td>
-          <td>{formatMoney(ltp)}</td><td>{row.dailyChangePercent == null ? "Unavailable" : `${row.dailyChangePercent.toFixed(2)}%`}</td>
+          <td>{formatMoney(status === "UNAVAILABLE" ? null : ltp)}</td><td>{row.dailyChangePercent == null || status === "UNAVAILABLE" ? "Unavailable" : `${row.dailyChangePercent.toFixed(2)}%`}</td>
           <td>{row.volume == null ? "Unavailable" : row.volume.toLocaleString("en-IN")}</td><td>{row.volatilityPercent == null ? "Insufficient candles" : `${row.volatilityPercent.toFixed(2)}%`}</td>
           <td>{row.fiftyTwoWeekHigh == null || row.fiftyTwoWeekLow == null ? "Insufficient candles" : `${formatMoney(row.fiftyTwoWeekLow)} - ${formatMoney(row.fiftyTwoWeekHigh)}`}</td>
           <td>{row.distanceFromFiftyTwoWeekHighPercent == null ? "..." : `${row.distanceFromFiftyTwoWeekHighPercent.toFixed(2)}%`} / {row.distanceFromFiftyTwoWeekLowPercent == null ? "..." : `${row.distanceFromFiftyTwoWeekLowPercent.toFixed(2)}%`}</td><td><StatusBadge status={status} /></td></tr>;
@@ -154,16 +154,8 @@ function isMarketQuote(value: unknown): value is MarketQuote {
     && ["marketTimestamp", "providerUpdatedTimestamp"].every(nullableString);
 }
 
-function marketQuoteWebSocketUrl() {
-  const configuredBase = process.env.NEXT_PUBLIC_API_BASE_URL;
-  const base = configuredBase || `${window.location.protocol}//${window.location.hostname}:8080`;
-  const url = new URL("/ws/market-quotes", base);
-  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  return url.toString();
-}
-
 function formatTimestamp(value: string | null | undefined) {
   if (!value) return "Unavailable";
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "Unavailable" : date.toLocaleString();
+  return Number.isNaN(date.getTime()) ? "Unavailable" : date.toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
 }

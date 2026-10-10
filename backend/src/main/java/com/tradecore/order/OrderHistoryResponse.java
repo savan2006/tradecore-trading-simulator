@@ -3,7 +3,9 @@ package com.tradecore.order;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
+import io.swagger.v3.oas.annotations.media.Schema;
 
+@Schema(description = "A user's simulated order state and executed and remaining quantities.")
 public record OrderHistoryResponse(UUID orderId, String exchange, String symbol, String side,
         String orderType, String tradingMode, long requestedQuantity, long executedQuantity,
         long remainingQuantity, BigDecimal limitPrice, BigDecimal triggerPrice,

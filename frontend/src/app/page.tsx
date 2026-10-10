@@ -32,8 +32,8 @@ export default function DashboardPage() {
       <section className="metric-grid" aria-label="Account summary">
         <Metric label="Available balance" value={portfolio ? formatMoney(portfolio.availableBalance, portfolio.currency) : "Unavailable"} note={data.errors.portfolio} />
         <Metric label="Reserved balance" value={portfolio ? formatMoney(portfolio.reservedBalance, portfolio.currency) : "Unavailable"} note={data.errors.portfolio} />
-        <Metric label="Total portfolio P&L" value={portfolio ? formatMoney(portfolio.totalPnl, portfolio.currency) : "Unavailable"} note={portfolio?.valuationStatus ?? data.errors.portfolio} />
-        <Metric label="Portfolio market value" value={portfolio ? formatMoney(portfolio.currentMarketValue, portfolio.currency) : "Unavailable"} note={portfolio?.valuationStatus ?? data.errors.portfolio} />
+        <Metric label="Total portfolio P&L" value={portfolio && portfolio.valuationStatus !== "UNAVAILABLE" ? formatMoney(portfolio.totalPnl, portfolio.currency) : "Unavailable"} note={portfolio?.valuationStatus ?? data.errors.portfolio} />
+        <Metric label="Portfolio market value" value={portfolio && portfolio.valuationStatus !== "UNAVAILABLE" ? formatMoney(portfolio.currentMarketValue, portfolio.currency) : "Unavailable"} note={portfolio?.valuationStatus ?? data.errors.portfolio} />
         <Metric label="Open positions" value={portfolio ? String(portfolio.positionCount) : "Unavailable"} note={data.errors.portfolio} />
         <Metric label="Unread notifications" value={data.unreadNotifications ? String(data.unreadNotifications.unreadCount) : "Unavailable"} note={data.errors.unreadNotifications} />
         <Metric label="Supported companies" value={data.instruments ? String(data.instruments.length) : "Unavailable"} note={data.errors.instruments ?? "Approved NSE instruments"} />
@@ -53,7 +53,7 @@ export default function DashboardPage() {
         <article className="panel dashboard-watchlists">
           <div className="panel-heading"><div><p className="eyebrow">Persisted quotes</p><h2>Market snapshot</h2></div><Link className="text-link" href="/markets">Browse markets</Link></div>
           {data.marketQuotes ? data.marketQuotes.length ? <div className="quote-list">{data.marketQuotes.map((quote) => <Link className="quote-row" href={`/companies/${encodeURIComponent(quote.symbol)}`} key={quote.symbol}>
-            <span><strong>{quote.symbol}</strong><small>{quote.exchange}</small></span><span className="quote-value">{formatMoney(quote.lastPrice)}</span><StatusBadge status={quote.dataStatus} />
+            <span><strong>{quote.symbol}</strong><small>{quote.exchange}</small></span><span className="quote-value">{formatMoney(quote.dataStatus === "UNAVAILABLE" ? null : quote.lastPrice)}</span><StatusBadge status={quote.dataStatus} />
           </Link>)}</div> : <EmptyState message="No market quotes are available." /> : <SectionError message={data.errors.marketQuotes} label="Market quotes are unavailable." />}
           {data.marketQuotes?.some((quote) => quote.dataStatus !== "LIVE") && <p className="panel-footnote">Some market quotes are stale or unavailable. Check each status before using a price for learning.</p>}
         </article>

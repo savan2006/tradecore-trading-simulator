@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { api, type AdminRiskLimit, type AdminRiskLimitRequest, type ApiError, type Instrument } from "@/lib/api";
-import { EmptyState, LoadingState, LoginRequired, PageHeading, StatusBadge } from "@/components/page-states";
+import { EmptyState, ErrorState, LoadingState, LoginRequired, PageHeading, StatusBadge } from "@/components/page-states";
 
 const LIMIT_TYPES = ["TRADING_DISABLED", "INSTRUMENT_BLOCKED", "MAX_ORDER_QUANTITY", "MAX_ORDER_AMOUNT", "MAX_ORDER_VALUE"];
 type FormState = { scope: "GLOBAL" | "ACCOUNT" | "INSTRUMENT"; limitType: string; accountId: string; symbol: string; configuredValue: string; enabled: boolean; effectiveFrom: string; effectiveUntil: string };
@@ -18,6 +18,7 @@ export default function AdminRiskLimitsPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -76,8 +77,8 @@ export default function AdminRiskLimitsPage() {
         symbol: form.scope === "INSTRUMENT" ? form.symbol : null,
         configuredValue: value,
         enabled: form.enabled,
-        effectiveFrom: form.effectiveFrom ? new Date(form.effectiveFrom).toISOString() : null,
-        effectiveUntil: form.effectiveUntil ? new Date(form.effectiveUntil).toISOString() : null,
+        effectiveFrom: form.effectiveFrom ? new Date(`${form.effectiveFrom}+05:30`).toISOString() : null,
+        effectiveUntil: form.effectiveUntil ? new Date(`${form.effectiveUntil}+05:30`).toISOString() : null,
       };
       if (form.scope === "ACCOUNT" && !request.accountId) throw new Error("Enter the trading account UUID.");
       if (form.scope === "INSTRUMENT" && !request.symbol) throw new Error("Select a supported instrument.");
@@ -90,7 +91,8 @@ export default function AdminRiskLimitsPage() {
   }
 
   async function setActive(limit: AdminRiskLimit, active: boolean) {
-    if (!session) return;
+    if (!session || pendingAction) return;
+    setPendingAction(limit.id);
     setError(null); setNotice(null);
     try {
       if (active) await api.activateAdminRiskLimit(session.basicCredential, limit.id);
@@ -98,6 +100,7 @@ export default function AdminRiskLimitsPage() {
       setNotice(active ? "Risk limit activated." : "Risk limit deactivated.");
       setReloadKey((key) => key + 1);
     } catch (reason) { setError(messageOf(reason)); }
+    finally { setPendingAction(null); }
   }
 
   return <div className="content-wrap admin-page">
@@ -122,12 +125,12 @@ export default function AdminRiskLimitsPage() {
     </section>
     <section className="panel admin-panel">
       <div className="panel-heading"><div><p className="eyebrow">Existing configuration</p><h2>Configured limits</h2></div><span className="muted admin-total">{limits.length} total</span></div>
-      {loading ? <LoadingState label="Loading risk limits…" /> : error && limits.length === 0 ? <EmptyState message="Risk limits could not be loaded." /> : limits.length === 0 ? <EmptyState message="No risk limits are configured." /> : <div className="table-scroll"><table><thead><tr><th>Scope / target</th><th>Limit</th><th>Value</th><th>Status</th><th>Effective period</th><th>Actions</th></tr></thead><tbody>{limits.map((limit) => <tr key={limit.id}>
+      {loading ? <LoadingState label="Loading risk limits…" /> : error && limits.length === 0 ? <ErrorState message={error} /> : limits.length === 0 ? <EmptyState message="No risk limits are configured." /> : <div className="table-scroll"><table><thead><tr><th>Scope / target</th><th>Limit</th><th>Value</th><th>Status</th><th>Effective period</th><th>Actions</th></tr></thead><tbody>{limits.map((limit) => <tr key={limit.id}>
         <td><strong>{limit.scope}</strong><small>{limit.accountEmail ?? limit.symbol ?? "All accounts"}</small>{limit.accountId && <small className="audit-target-id">{limit.accountId}</small>}</td>
         <td>{limit.limitType}</td><td>{limit.configuredValue.toLocaleString("en-IN")}</td>
         <td><StatusBadge status={limit.enabled ? limit.effectiveNow ? "ACTIVE" : "ENABLED / SCHEDULED" : "DISABLED"} /></td>
         <td>{formatDate(limit.effectiveFrom)} – {formatDate(limit.effectiveUntil)}</td>
-        <td><div className="admin-row-actions"><button className="text-button" onClick={() => edit(limit)}>Edit</button><button className="text-button" onClick={() => void setActive(limit, !limit.enabled)}>{limit.enabled ? "Deactivate" : "Activate"}</button></div></td>
+        <td><div className="admin-row-actions"><button className="text-button" disabled={saving || Boolean(pendingAction)} onClick={() => edit(limit)}>Edit</button><button className="text-button" disabled={saving || Boolean(pendingAction)} onClick={() => void setActive(limit, !limit.enabled)}>{pendingAction === limit.id ? "Saving…" : limit.enabled ? "Deactivate" : "Activate"}</button></div></td>
       </tr>)}</tbody></table></div>}
     </section>
   </div>;
@@ -141,14 +144,14 @@ function toLocalInput(value: string | null) {
   if (!value) return "";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
-  return local.toISOString().slice(0, 16);
+  const ist = new Date(date.getTime() + 330 * 60_000);
+  return ist.toISOString().slice(0, 16);
 }
 
 function formatDate(value: string | null) {
   if (!value) return "Unbounded";
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "Invalid date" : date.toLocaleString();
+  return Number.isNaN(date.getTime()) ? "Invalid date" : date.toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
 }
 
 function messageOf(reason: unknown) {
