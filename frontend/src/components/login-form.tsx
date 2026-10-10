@@ -26,7 +26,11 @@ export function LoginForm({ registered = false }: { registered?: boolean }) {
       const status = (cause as ApiError)?.status;
       setError(status === 401
         ? "Email or password is incorrect."
-        : cause instanceof Error ? cause.message : "Unable to sign in. Check your connection and try again.");
+        : status === 400
+          ? "Please check your email and password, then try again."
+          : status === 502 || status === 503 || status === 504
+            ? cause instanceof Error ? cause.message : "The login server is unreachable. Please try again."
+            : "Unable to sign in. Please try again.");
     } finally {
       setSubmitting(false);
     }

@@ -22,12 +22,11 @@ const links = [
 ] as const;
 
 export function AppShell({ children }: Readonly<{ children: React.ReactNode }>) {
-  const { session, adminAccess, signOut } = useAuth();
+  const { session, adminAccess, signOut, unreadCount, setUnreadCount } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
   const isLogin = pathname === "/login";
   const isPublicAuthPage = isLogin || pathname === "/register";
-  const [unreadCount, setUnreadCount] = useState<number | null>(null);
   const [marketSession, setMarketSession] = useState<MarketSession | null>(null);
 
   useEffect(() => {
@@ -46,7 +45,7 @@ export function AppShell({ children }: Readonly<{ children: React.ReactNode }>) 
     }
     const controller = new AbortController();
     api.unreadNotificationCount(session.basicCredential, controller.signal)
-      .then((result) => setUnreadCount(result.unreadCount))
+      .then((result) => { if (!controller.signal.aborted) setUnreadCount(result.unreadCount); })
       .catch(() => { if (!controller.signal.aborted) setUnreadCount(null); });
     const updateCount = (event: Event) => {
       const count = (event as CustomEvent<number>).detail;
@@ -57,7 +56,7 @@ export function AppShell({ children }: Readonly<{ children: React.ReactNode }>) 
       controller.abort();
       window.removeEventListener("tradecore:unread-count-updated", updateCount);
     };
-  }, [session]);
+  }, [session?.email, setUnreadCount]);
 
   useEffect(() => {
     if (!session) {
@@ -71,7 +70,7 @@ export function AppShell({ children }: Readonly<{ children: React.ReactNode }>) 
     void refresh();
     const interval = window.setInterval(() => void refresh(), 60_000);
     return () => { controller.abort(); window.clearInterval(interval); };
-  }, [session]);
+  }, [session?.email]);
 
   return (
     <div className="app-frame">

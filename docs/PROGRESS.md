@@ -39,6 +39,7 @@ with one unpushed commit at audit time. Known defects: see `docs/PROJECT_CONTEXT
 | Q5 | Deployment readiness (no Docker) | M | DONE | 2026-10-10 | Added deployment guide, PORT support, and configurable secure WebSocket URL; backend tests: 263 (0 failures, 3 skipped), frontend typecheck/build pass. |  |
 | Q6 | Final cleanup, README, architecture docs, data-cleanup script | M | DONE | 2026-10-10 | Rewrote README, added architecture diagrams and rollback-safe synthetic cleanup SQL, consolidated the WebSocket helper, and tightened ignores. Backend: 263 tests (0 failures, 3 skipped); frontend typecheck/build pass. |  |
 | Q7 | FINAL RELEASE AUDIT (the 'is it really done?' gate) | M | DONE | 2026-10-10 | Completed release audit: no P0/P1 code blockers; backend 263 tests (0 failures, 3 skipped), performance test passed, frontend typecheck/build pass. Live deployment checks remain unverified. |  |
+| W1 | Fix dashboard loading and session bugs | S | DONE | 2026-10-10 | Ignored aborted loads, stabilized sessions, cached cookie key derivation, added role-based admin access and request timeouts, and removed duplicate dashboard count fetch. Backend: 262 tests (0 failures, 3 skipped); frontend typecheck/build pass. |  |
 | U4 | OPTIONAL: move backend to Java 25 LTS (OPTIONAL) | S | NOT_STARTED |  |  |  |
 | Q5b | OPTIONAL: Dockerfile (only if your host requires Docker) (OPTIONAL) | S | NOT_STARTED |  |  |  |
 

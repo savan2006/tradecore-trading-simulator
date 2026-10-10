@@ -86,6 +86,7 @@ class RegistrationAndAccountApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.accountId").value(accountId.toString()))
                 .andExpect(jsonPath("$.status").value("ACTIVE"))
+                .andExpect(jsonPath("$.admin").value(false))
                 .andExpect(jsonPath("$.availableBalance").value(100000.0));
     }
 

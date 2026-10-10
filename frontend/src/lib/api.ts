@@ -728,8 +728,8 @@ export async function loadDashboard(basic: string, signal: AbortSignal): Promise
     api.portfolio(basic, signal),
     api.orders(basic, { page: 0, size: 5 }, signal),
     api.watchlists(basic, signal),
-    api.unreadNotificationCount(basic, signal),
   ]);
+  if (signal.aborted) throw new DOMException("The request was aborted.", "AbortError");
   const valueOrNull = <T,>(index: number) => results[index].status === "fulfilled" ? results[index].value as T : null;
   const errorOrUndefined = (index: number) => results[index].status === "rejected"
     ? results[index].reason instanceof Error ? results[index].reason.message : "The request could not be completed."
@@ -740,14 +740,14 @@ export async function loadDashboard(basic: string, signal: AbortSignal): Promise
     portfolio: valueOrNull<Portfolio>(2),
     orders: valueOrNull<OrderPage>(3),
     watchlists: valueOrNull<Watchlist[]>(4),
-    unreadNotifications: valueOrNull<UnreadNotificationCount>(5),
+    unreadNotifications: null,
     errors: {
       instruments: errorOrUndefined(0),
       marketQuotes: errorOrUndefined(1),
       portfolio: errorOrUndefined(2),
       orders: errorOrUndefined(3),
       watchlists: errorOrUndefined(4),
-      unreadNotifications: errorOrUndefined(5),
+      unreadNotifications: undefined,
     },
   };
 }

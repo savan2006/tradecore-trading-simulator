@@ -6,6 +6,7 @@ import { useAuth } from "@/lib/auth-context";
 import {
   api,
   type AdminMarketStatus,
+  type AdminOverview,
   type AdminOrderPage,
   type AdminUserPage,
   type ApiError,
@@ -16,7 +17,8 @@ const PAGE_SIZE = 20;
 const ORDER_STATES = ["CREATED", "VALIDATING", "ACCEPTED", "PENDING", "PARTIALLY_FILLED", "FILLED", "CANCELLED", "REJECTED", "FAILED"];
 
 export default function AdminPage() {
-  const { session, adminAccess, adminOverview, refreshAdminAccess } = useAuth();
+  const { session, adminAccess, refreshAdminAccess } = useAuth();
+  const [adminOverview, setAdminOverview] = useState<AdminOverview | null>(null);
   const [users, setUsers] = useState<AdminUserPage | null>(null);
   const [usersLoading, setUsersLoading] = useState(true);
   const [usersError, setUsersError] = useState<string | null>(null);
@@ -38,6 +40,15 @@ export default function AdminPage() {
   useEffect(() => {
     if (!session || adminAccess !== "allowed") return;
     const controller = new AbortController();
+    api.adminOverview(session.basicCredential, controller.signal)
+      .then(setAdminOverview)
+      .catch(() => { if (!controller.signal.aborted) setAdminOverview(null); });
+    return () => controller.abort();
+  }, [session?.email, adminAccess]);
+
+  useEffect(() => {
+    if (!session || adminAccess !== "allowed") return;
+    const controller = new AbortController();
     setUsersLoading(true);
     setUsersError(null);
     api.adminUsers(session.basicCredential, { page: userPage, size: PAGE_SIZE, search: appliedUserSearch }, controller.signal)
@@ -45,7 +56,7 @@ export default function AdminPage() {
       .catch((error: unknown) => { if (!controller.signal.aborted) setUsersError(messageOf(error)); })
       .finally(() => { if (!controller.signal.aborted) setUsersLoading(false); });
     return () => controller.abort();
-  }, [session, adminAccess, userPage, appliedUserSearch]);
+  }, [session?.email, adminAccess, userPage, appliedUserSearch]);
 
   useEffect(() => {
     if (!session || adminAccess !== "allowed") return;
@@ -57,7 +68,7 @@ export default function AdminPage() {
       .catch((error: unknown) => { if (!controller.signal.aborted) setOrdersError(messageOf(error)); })
       .finally(() => { if (!controller.signal.aborted) setOrdersLoading(false); });
     return () => controller.abort();
-  }, [session, adminAccess, orderPage, orderFilters]);
+  }, [session?.email, adminAccess, orderPage, orderFilters]);
 
   useEffect(() => {
     if (!session || adminAccess !== "allowed") return;
@@ -69,7 +80,7 @@ export default function AdminPage() {
       .catch((error: unknown) => { if (!controller.signal.aborted) setMarketError(messageOf(error)); })
       .finally(() => { if (!controller.signal.aborted) setMarketLoading(false); });
     return () => controller.abort();
-  }, [session, adminAccess]);
+  }, [session?.email, adminAccess]);
 
   if (!session) return <div className="content-wrap"><PageHeading eyebrow="Operations" title="Admin" /><LoginRequired /></div>;
   if (adminAccess === "checking" || adminAccess === "signed-out") {

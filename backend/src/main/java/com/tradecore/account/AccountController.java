@@ -25,6 +25,7 @@ public class AccountController {
 
     @GetMapping("/me")
     public AccountResponse currentAccount(Authentication authentication) {
-        return accountQueryService.currentAccount(authentication.getName());
+        boolean admin = authentication.getAuthorities().stream().anyMatch(authority -> authority.getAuthority().equals("ROLE_ADMIN"));
+        return accountQueryService.currentAccount(authentication.getName(), admin);
     }
 }

@@ -5,10 +5,12 @@ import { useCallback } from "react";
 import { formatMoney, loadDashboard } from "@/lib/api";
 import { useApiQuery } from "@/lib/use-api-query";
 import { EmptyState, ErrorState, LoadingState, PageHeading, StatusBadge } from "@/components/page-states";
+import { useAuth } from "@/lib/auth-context";
 
 export default function DashboardPage() {
   const load = useCallback(loadDashboard, []);
   const { data, error, loading } = useApiQuery(load);
+  const { unreadCount } = useAuth();
 
   if (loading) return <div className="content-wrap"><PageHeading eyebrow="Overview" title="Dashboard" /><LoadingState label="Loading your account and learning dashboard…" /></div>;
   if (error || !data) return <div className="content-wrap"><PageHeading eyebrow="Overview" title="Dashboard" /><ErrorState message={error?.message ?? "Dashboard data is unavailable."} /></div>;
@@ -35,7 +37,7 @@ export default function DashboardPage() {
         <Metric label="Total portfolio P&L" value={portfolio && portfolio.valuationStatus !== "UNAVAILABLE" ? formatMoney(portfolio.totalPnl, portfolio.currency) : "Unavailable"} note={portfolio?.valuationStatus ?? data.errors.portfolio} />
         <Metric label="Portfolio market value" value={portfolio && portfolio.valuationStatus !== "UNAVAILABLE" ? formatMoney(portfolio.currentMarketValue, portfolio.currency) : "Unavailable"} note={portfolio?.valuationStatus ?? data.errors.portfolio} />
         <Metric label="Open positions" value={portfolio ? String(portfolio.positionCount) : "Unavailable"} note={data.errors.portfolio} />
-        <Metric label="Unread notifications" value={data.unreadNotifications ? String(data.unreadNotifications.unreadCount) : "Unavailable"} note={data.errors.unreadNotifications} />
+        <Metric label="Unread notifications" value={unreadCount != null ? String(unreadCount) : "Loading"} />
         <Metric label="Supported companies" value={data.instruments ? String(data.instruments.length) : "Unavailable"} note={data.errors.instruments ?? "Approved NSE instruments"} />
       </section>
 

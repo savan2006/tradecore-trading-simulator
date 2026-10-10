@@ -46,6 +46,7 @@ async function forward(request: NextRequest, context: RouteContext, method: "GET
       ...(method !== "GET" && method !== "DELETE" ? { body: await request.text() } : {}),
       cache: "no-store",
       redirect: "manual",
+      signal: AbortSignal.timeout(30_000),
     });
     const result = new NextResponse(response.status === 204 || response.status === 304 ? null : await response.arrayBuffer(), {
       status: response.status,
@@ -58,7 +59,8 @@ async function forward(request: NextRequest, context: RouteContext, method: "GET
     });
     if (response.status === 401) result.cookies.set(SESSION_COOKIE, "", { httpOnly: true, sameSite: "strict", secure: process.env.NODE_ENV === "production", path: "/", maxAge: 0 });
     return result;
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.name === "TimeoutError") return NextResponse.json({ message: "The server took too long to respond. Please try again." }, { status: 504 });
     return NextResponse.json({ message: "TradeCore backend is unavailable." }, { status: 502 });
   }
 }

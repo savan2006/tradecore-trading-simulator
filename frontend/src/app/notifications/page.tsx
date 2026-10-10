@@ -44,7 +44,7 @@ export default function NotificationsPage() {
       setLoading(false);
     });
     return () => controller.abort();
-  }, [session, page, unreadOnly, refreshKey]);
+  }, [session?.email, page, unreadOnly, refreshKey]);
 
   const refresh = useCallback(() => setRefreshKey((value) => value + 1), []);
 

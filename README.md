@@ -84,6 +84,10 @@ npm ci
 npm run dev
 ```
 
+## Performance
+
+Judge frontend speed with `npm run build` followed by `npm start`; development mode (`npm run dev`) adds compilation and debugging overhead. Keep the project outside OneDrive-synced folders to avoid file-sync overhead during development and builds.
+
 The frontend API proxy defaults to `http://localhost:8080`; configure `TRADECORE_BACKEND_URL` when the backend uses another address. `NEXT_PUBLIC_API_BASE_URL` sets the browser-facing API base for the WebSocket fallback. `NEXT_PUBLIC_WEBSOCKET_URL` can override the full socket endpoint. On HTTPS pages the client uses `wss:`.
 
 ## Tests and API documentation

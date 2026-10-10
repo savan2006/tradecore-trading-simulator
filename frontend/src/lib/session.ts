@@ -4,10 +4,13 @@ export const SESSION_COOKIE = "tradecore_session";
 export const SESSION_MAX_AGE = 12 * 60 * 60;
 const backendBase = (process.env.TRADECORE_BACKEND_URL ?? "http://localhost:8080").replace(/\/$/, "");
 
+let cachedEncryptionKey: Buffer | undefined;
 function encryptionKey() {
+  if (cachedEncryptionKey) return cachedEncryptionKey;
   const secret = process.env.SESSION_SECRET;
   if (!secret) throw new Error("SESSION_SECRET is required to create or read login sessions.");
-  return scryptSync(secret, "tradecore-session-v1", 32);
+  cachedEncryptionKey = scryptSync(secret, "tradecore-session-v1", 32);
+  return cachedEncryptionKey;
 }
 
 export function encryptCredential(credential: string) {

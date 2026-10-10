@@ -61,7 +61,7 @@ export default function WatchlistsPage() {
       setLoading(false);
     });
     return () => controller.abort();
-  }, [session, refreshKey]);
+  }, [session?.email, refreshKey]);
 
   const allSymbols = useMemo(() => companies ?? [], [companies]);
   const displayedSymbols = useMemo(() => [...new Set(watchlists?.flatMap((list) => list.items.map((item) => item.symbol)) ?? [])].sort(), [watchlists]);

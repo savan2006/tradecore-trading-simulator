@@ -17,14 +17,17 @@ export async function POST(request: NextRequest) {
   }
   const credential = Buffer.from(`${email.trim()}:${password}`, "utf8").toString("base64");
   try {
-    const response = await fetch(backendAccountUrl(), { headers: { Authorization: `Basic ${credential}`, Accept: "application/json" }, cache: "no-store", redirect: "manual" });
-    if (!response.ok) return NextResponse.json({ message: response.status === 401 ? "Email or password is incorrect." : "Unable to verify login." }, { status: response.status === 401 ? 401 : 502 });
-    const user = await response.json() as { email?: string };
-    const result = NextResponse.json({ email: user.email ?? email.trim() });
+    const response = await fetch(backendAccountUrl(), { headers: { Authorization: `Basic ${credential}`, Accept: "application/json" }, cache: "no-store", redirect: "manual", signal: AbortSignal.timeout(20_000) });
+    if (!response.ok) {
+      const status = response.status === 401 ? 401 : response.status === 400 ? 400 : 502;
+      return NextResponse.json({ message: status === 401 ? "Email or password is incorrect." : status === 400 ? "Please check your email and password." : "The server could not verify your sign in." }, { status });
+    }
+    const user = await response.json() as { email?: string; admin?: boolean };
+    const result = NextResponse.json({ email: user.email ?? email.trim(), admin: user.admin === true });
     result.cookies.set(SESSION_COOKIE, encryptCredential(JSON.stringify({ credential, email: email.trim() })), sessionCookieOptions());
     return result;
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unable to create login session.";
-    return NextResponse.json({ message }, { status: 503 });
+    if (error instanceof Error && error.name === "TimeoutError") return NextResponse.json({ message: "The server took too long to respond. Please try again." }, { status: 504 });
+    return NextResponse.json({ message: "The login server is unreachable. Please try again." }, { status: 503 });
   }
 }
